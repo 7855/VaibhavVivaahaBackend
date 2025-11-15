@@ -9,4 +9,5 @@ import java.util.List;
 @Repository
 public interface CasteRepository extends JpaRepository<CasteEntity, Integer> {
     List<CasteEntity> findByIsActive(ActiveStatus isActive);
+    CasteEntity findByCasteCode(String casteCode);
 }

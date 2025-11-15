@@ -6,21 +6,28 @@ import com.uravugal.matrimony.dtos.PaginationData;
 import com.uravugal.matrimony.dtos.ResultResponse;
 import com.uravugal.matrimony.enums.ActiveStatus;
 import com.uravugal.matrimony.enums.ResponseStatus;
+import com.uravugal.matrimony.enums.SubscriptionStatus;
+import com.uravugal.matrimony.models.Features;
+import com.uravugal.matrimony.models.Notification;
+import com.uravugal.matrimony.models.PlanFeatures;
 import com.uravugal.matrimony.models.ShortlistedProfile;
 import com.uravugal.matrimony.models.UserDetailEntity;
 import com.uravugal.matrimony.models.UserEntity;
+import com.uravugal.matrimony.models.UserSubscriptions;
+import com.uravugal.matrimony.repositories.FeaturesRepository;
+import com.uravugal.matrimony.repositories.NotificationRepository;
+import com.uravugal.matrimony.repositories.PlanFeaturesRepository;
 import com.uravugal.matrimony.repositories.ShortlistedProfileRepository;
 import com.uravugal.matrimony.repositories.UserDetailRepository;
 import com.uravugal.matrimony.repositories.UserRepository;
+import com.uravugal.matrimony.repositories.UserSubscriptionsRepository;
+
 import java.util.Base64;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -34,6 +41,21 @@ public class ShortlistedProfileService {
 
     @Autowired
     private UserDetailRepository userDetailRepository;
+
+    @Autowired
+    private UserSubscriptionsRepository userSubscriptionsRepository;
+
+    @Autowired
+    private FeaturesRepository featuresRepository;
+
+    @Autowired
+    private PlanFeaturesRepository planFeaturesRepository;
+
+    @Autowired
+    private NotificationRepository notificationRepository;
+
+    @Autowired
+    private PushNotificationService pushNotificationService;
 
     public ResultResponse insertShortlistedProfile(ShortlistedProfile shortlistedProfile) {
         ResultResponse response = new ResultResponse();
@@ -83,7 +105,48 @@ public class ShortlistedProfileService {
             }
 
             
-            ShortlistedProfile savedProfile = shortlistedProfileRepository.save(shortlistedProfile);
+        ShortlistedProfile savedProfile = shortlistedProfileRepository.save(shortlistedProfile);
+
+        // ✅ Check WHO_SHORTLISTED_YOU feature for the shortlisted user
+        Features whoShortlistedYouFeature = featuresRepository.findByCode("WHO_SHORTLISTED_YOU");
+
+        if (whoShortlistedYouFeature != null) {
+            // Get shortlisted user's active subscription
+            List<UserSubscriptions> userSubscriptions = userSubscriptionsRepository
+                    .findByUserIdAndStatus(shortlistedProfile.getShortlistedUserId(), SubscriptionStatus.ACTIVE);
+
+            if (!userSubscriptions.isEmpty() && !userSubscriptions.get(0).getId().equals(1L)) {
+                // Check if the feature is part of the user's plan
+                PlanFeatures planFeature = planFeaturesRepository.findByFeatureIdAndPlanId(
+                        whoShortlistedYouFeature.getId(),
+                        userSubscriptions.get(0).getSubscriptionPlanId());
+
+                if (planFeature != null) {
+                    // Fetch both users for names and notification
+                    UserEntity receiver = userRepository.findById(shortlistedProfile.getShortlistedUserId()).orElse(null);
+                    UserEntity sender = userRepository.findById(shortlistedProfile.getShortlistedBy()).orElse(null);
+
+                    if (receiver != null && sender != null) {
+                        // Create notification
+                        Notification notification = new Notification();
+                        notification.setSenderId(shortlistedProfile.getShortlistedBy());
+                        notification.setReceiverId(shortlistedProfile.getShortlistedUserId());
+                        notification.setMessage("shortlisted your profile.");
+                        notification.setNotificationCategory("SHORTLIST");
+                        notification.setTitle("Added to Shortlist");
+                        notificationRepository.save(notification);
+
+                        // Send push notification
+                        String senderName = sender.getFirstName() + " " + sender.getLastName();
+                        pushNotificationService.sendPushNotificationToUser(
+                                shortlistedProfile.getShortlistedUserId(),
+                                "Profile Shortlisted",
+                                senderName + " has shortlisted your profile. View their profile now!");
+                    }
+                }
+            }
+        }
+
             
             response.setCode(200);
             response.setMessage("Profile shortlisted successfully");

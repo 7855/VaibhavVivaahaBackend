@@ -11,14 +11,21 @@ import org.springframework.transaction.annotation.Transactional;
 import com.uravugal.matrimony.dtos.ResultResponse;
 import com.uravugal.matrimony.dtos.ViewedProfileDetailDTO;
 import com.uravugal.matrimony.enums.ResponseStatus;
+import com.uravugal.matrimony.enums.SubscriptionStatus;
+import com.uravugal.matrimony.models.Features;
 import com.uravugal.matrimony.models.Notification;
+import com.uravugal.matrimony.models.PlanFeatures;
 import com.uravugal.matrimony.models.UserDetailEntity;
 import com.uravugal.matrimony.models.UserEntity;
+import com.uravugal.matrimony.models.UserSubscriptions;
 import com.uravugal.matrimony.models.ViewedProfile;
+import com.uravugal.matrimony.repositories.FeaturesRepository;
 import com.uravugal.matrimony.repositories.NotificationRepository;
 import com.uravugal.matrimony.repositories.UserDetailRepository;
 import com.uravugal.matrimony.repositories.UserRepository;
 import com.uravugal.matrimony.repositories.ViewedProfileRepository;
+import com.uravugal.matrimony.repositories.UserSubscriptionsRepository;
+import com.uravugal.matrimony.repositories.PlanFeaturesRepository;
 
 @Service
 public class ViewedProfileService {
@@ -38,44 +45,82 @@ public class ViewedProfileService {
     @Autowired
     private PushNotificationService pushNotificationService;
 
+    @Autowired
+    private UserSubscriptionsRepository userSubscriptionsRepository;
+
+    @Autowired
+    private FeaturesRepository featuresRepository;
+
+    @Autowired
+    private PlanFeaturesRepository planFeaturesRepository;
+
     @Transactional
     public ResultResponse handleProfileView(String viewerId, Long viewedUserId) {
         ResultResponse response = new ResultResponse();
         try {
             String decodedViewerId = new String(Base64.getDecoder().decode(viewerId));
             Long decodedViewerIdLong = Long.parseLong(decodedViewerId);
+    
             // Check if user has already viewed this profile
             if (!viewedProfileRepository.existsByUserIdValueAndViewedBy(viewedUserId, decodedViewerIdLong)) {
+    
                 // Save profile view
                 ViewedProfile viewedProfile = new ViewedProfile();
                 viewedProfile.setUserIdValue(viewedUserId);
                 viewedProfile.setViewedBy(decodedViewerIdLong);
                 viewedProfileRepository.save(viewedProfile);
-
-                // Create Notification
-                Notification notification = new Notification();
-                notification.setSenderId(decodedViewerIdLong);
-                notification.setReceiverId(viewedUserId);
-                notification.setMessage("viewed your profile.");
-                notification.setNotificationCategory("PROFILE_VIEW");
-                notification.setTitle("Profile Viewed");
-                notificationRepository.save(notification);
-                
-                pushNotificationService.sendPushNotificationToUser(viewedUserId, "Profile Viewed", "Someone has viewed your profile. Check now to see who it is!");
-                
+    
+                // Check WHO_VIEWED_YOU feature
+                Features whoViewedYouFeature = featuresRepository.findByCode("WHO_VIEWED_YOU");
+    
+                if (whoViewedYouFeature != null) {
+                    List<UserSubscriptions> userSubscriptions = userSubscriptionsRepository
+                            .findByUserIdAndStatus(viewedUserId, SubscriptionStatus.ACTIVE);
+    
+                    if (!userSubscriptions.isEmpty() && !userSubscriptions.get(0).getId().equals(1L)) {
+                        PlanFeatures planFeature = planFeaturesRepository.findByFeatureIdAndPlanId(
+                                whoViewedYouFeature.getId(),
+                                userSubscriptions.get(0).getSubscriptionPlanId());
+    
+                        if (planFeature != null) {
+                            UserEntity user = userRepository.findById(viewedUserId).orElse(null);
+                            if (user != null) {
+                                Notification notification = new Notification();
+                                notification.setSenderId(decodedViewerIdLong);
+                                notification.setReceiverId(viewedUserId);
+                                notification.setMessage("viewed your profile.");
+                                notification.setNotificationCategory("PROFILE_VIEW");
+                                notification.setTitle("Profile Viewed");
+                                notificationRepository.save(notification);
+    
+                                String viewedUserName = user.getFirstName() + " " + user.getLastName();
+                                pushNotificationService.sendPushNotificationToUser(
+                                        viewedUserId,
+                                        "Profile Viewed",
+                                        viewedUserName + " has viewed your profile. View their profile now!");
+                            }
+                        }
+                    }
+                }
+    
+                // Always increment view count
                 UserEntity user = userRepository.findById(viewedUserId).orElse(null);
                 if (user != null) {
                     user.setViewCount(user.getViewCount() + 1);
                     userRepository.save(user);
                 }
+    
                 response.setCode(200);
                 response.setStatus(ResponseStatus.SUCCESS);
                 response.setMessage("Profile view recorded successfully");
+    
             } else {
+                // ✅ this else belongs here, not inside WHO_VIEWED_YOU
                 response.setCode(200);
                 response.setStatus(ResponseStatus.SUCCESS);
                 response.setMessage("Profile view already recorded");
             }
+    
         } catch (Exception e) {
             response.setCode(500);
             response.setStatus(ResponseStatus.FAILURE);
@@ -83,7 +128,7 @@ public class ViewedProfileService {
         }
         return response;
     }
-
+    
     public ResultResponse getAllViewers(String encodedUserId) {
         ResultResponse response = new ResultResponse();
         try {

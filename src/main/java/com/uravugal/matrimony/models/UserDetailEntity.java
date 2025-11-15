@@ -59,6 +59,9 @@ public class UserDetailEntity extends GenericEntity{
     @Column(name = "degree")
     private String degree;
 
+    @Column(name = "educationInDetail")
+    private String educationInDetail;
+
     @Column(name = "horoscope")
     private String horoscope;
 

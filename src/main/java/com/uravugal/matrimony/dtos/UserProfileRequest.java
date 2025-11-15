@@ -16,6 +16,7 @@ public class UserProfileRequest {
     private String fathersOccupation;
     private String mothersOccupation;
     private String education;
+    private String educationInDetail;
     private String occupation;
     private String jobPlace;
     private String employingIn;

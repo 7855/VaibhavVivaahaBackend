@@ -19,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/user")
+@CrossOrigin(origins = "*")
 public class UserController {
 
     @Autowired
@@ -243,13 +244,6 @@ public class UserController {
     public ResultResponse updateUserDetailSection(@RequestBody UserDetailUpdateRequest request) {
         ResultResponse resp = new ResultResponse();
 
-        // sample data 
-        // {
-        //     "userId": 123,
-        //     "section": "familyInfo",
-        //     "data": "{\"fatherName\": \"John\", \"motherName\": \"Jane\"}"
-        // }
-
         try {
             resp = userService.updateUserDetailSection(request);
         } catch (Exception e) {
@@ -351,5 +345,18 @@ public class UserController {
 	    }
 	    return result;
 	}
+
+    @GetMapping("/getProfileDetailByMemberId/{memberId}/{gender}/{casteId}")
+    public ResultResponse getProfileDetailByMemberId(@PathVariable String memberId, @PathVariable Gender gender, @PathVariable Integer casteId) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            resp = userService.getProfileDetailByMemberId(memberId, gender, casteId);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
     
 }

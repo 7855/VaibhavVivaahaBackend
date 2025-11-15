@@ -14,4 +14,8 @@ public class UserFilterRequest {
     private String profileImageStatus; // Y for with profile image, N for all
     private Integer casteId;
     private String gender;
+    private String dosham;
+    private String star;
+    private String profilesWithHoroscope;
+    private Long userId;
 }

@@ -12,7 +12,9 @@ import com.uravugal.matrimony.enums.Gender;
 import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.models.UserDetailEntity;
 import com.uravugal.matrimony.models.UserEntity;
+import com.uravugal.matrimony.models.UserSubscriptions;
 import com.uravugal.matrimony.repositories.UserRepository;
+import com.uravugal.matrimony.repositories.UserSubscriptionsRepository;
 import com.uravugal.matrimony.repositories.UserDetailRepository;
 import com.uravugal.matrimony.utils.EncryptionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,6 +52,9 @@ public class UserService {
     
     @Autowired
     private S3FileUploadService s3UploadService;
+
+    @Autowired
+    private UserSubscriptionsRepository userSubscriptionRepository;
     
     private static final String AWS_BASE_PATH = "profile-images/";
 
@@ -453,40 +458,118 @@ public class UserService {
         return response;
     }
 
+    // public ResultResponse filterUsers(UserFilterRequest filterRequest) {
+    //     ResultResponse response = new ResultResponse();
+    //     try {
+    //         // Get filtered users
+    //         System.out.println("Filter request: " + filterRequest);
+    //         List<UserEntity> users = userRepository.findFilteredUsers(
+    //                 ActiveStatus.Y,
+    //                 filterRequest.getGender() != null ? Gender.valueOf(filterRequest.getGender()) : null,
+    //                 filterRequest.getCasteId(),
+    //                 filterRequest.getMinAge(),
+    //                 filterRequest.getMaxAge(),
+    //                 filterRequest.getMinAnnualIncome(),
+    //                 filterRequest.getMaxAnnualIncome(),
+    //                 filterRequest.getOccupation(),
+    //                 filterRequest.getLocation(),
+    //                 filterRequest.getEmployedAt() != null ? EmploymentType.valueOf(filterRequest.getEmployedAt()) : null, 
+    //                 filterRequest.getProfileImageStatus() != null ? filterRequest.getProfileImageStatus() : "N"
+    //         );
+    //         System.out.println("Filtered users: " + users);
+            
+    //         if (users.isEmpty()) {
+    //             response.setCode(404);
+    //             response.setStatus(ResponseStatus.FAILURE);
+    //             response.setMessage("No users found matching the criteria.");
+    //             return response;
+    //         }
+
+    //         // Take first 10 users (already shuffled by the query)
+    //         List<UserEntity> filteredUsers = users.subList(0, Math.min(users.size(), 10));
+
+    //         response.setCode(200);
+    //         response.setStatus(ResponseStatus.SUCCESS);
+    //         response.setMessage("Filtered users fetched successfully.");
+    //         response.setData(filteredUsers);
+    //     } catch (Exception e) {
+    //         response.setCode(500);
+    //         response.setStatus(ResponseStatus.FAILURE);
+    //         response.setMessage("Error fetching filtered users: " + e.getMessage());
+    //     }
+    //     return response;
+    // }
+
     public ResultResponse filterUsers(UserFilterRequest filterRequest) {
         ResultResponse response = new ResultResponse();
+        List<UserEntity> users = new ArrayList<>();
         try {
+            if(filterRequest.getUserId() != null){
+                UserSubscriptions userSubscriptions = userSubscriptionRepository.findTopByUserIdOrderByCreatedAtDesc(filterRequest.getUserId());
+                if(userSubscriptions == null){
+                    response.setCode(404);
+                    response.setStatus(ResponseStatus.FAILURE);
+                    response.setMessage("No subscriptions found for the specified user.");
+                    return response;
+                }
+                if(userSubscriptions.getSubscriptionPlanId() != 1){
+                    System.out.println("premium userrr request: ==========>" + filterRequest);
+                    users = userRepository.advanceFilter(
+                        filterRequest.getGender() != null ? filterRequest.getGender() : null,          // Pass String directly
+                        filterRequest.getCasteId(),
+                        filterRequest.getMinAge() != null ? Integer.valueOf(filterRequest.getMinAge()) : null,
+                        filterRequest.getMaxAge() != null ? Integer.valueOf(filterRequest.getMaxAge()) : null,
+                        filterRequest.getMinAnnualIncome() != null ? Integer.valueOf(filterRequest.getMinAnnualIncome()) : null,
+                        filterRequest.getMaxAnnualIncome() != null ? Integer.valueOf(filterRequest.getMaxAnnualIncome()) : null,
+                        filterRequest.getOccupation(),
+                        filterRequest.getLocation(),
+                        filterRequest.getEmployedAt() != null ? filterRequest.getEmployedAt() : null,  // Pass String directly
+                        filterRequest.getProfileImageStatus() != null ? filterRequest.getProfileImageStatus() : "N",
+                        filterRequest.getStar(),
+                        filterRequest.getDosham(),
+                        filterRequest.getProfilesWithHoroscope() != null ? filterRequest.getProfilesWithHoroscope() : "N"
+                );
+                
+                }else{
+                    System.out.println("Normal user request: ==========>" + filterRequest);
+                    users = userRepository.normalFilter(
+                        ActiveStatus.Y,
+                        filterRequest.getGender() != null ? Gender.valueOf(filterRequest.getGender()) : null,
+                        filterRequest.getCasteId(),
+                        filterRequest.getMinAge() != null ? Integer.valueOf(filterRequest.getMinAge()) : null,
+                        filterRequest.getMaxAge() != null ? Integer.valueOf(filterRequest.getMaxAge()) : null,
+                        filterRequest.getLocation(),
+                        filterRequest.getProfileImageStatus() != null ? filterRequest.getProfileImageStatus() : "N"
+                    );
+                    
+                }
+            }else{
+                response.setCode(404);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("User Id Is Required");
+                return response;
+            }
             // Get filtered users
-            System.out.println("Filter request: " + filterRequest);
-            List<UserEntity> users = userRepository.findFilteredUsers(
-                    ActiveStatus.Y,
-                    filterRequest.getGender() != null ? Gender.valueOf(filterRequest.getGender()) : null,
-                    filterRequest.getCasteId(),
-                    filterRequest.getMinAge(),
-                    filterRequest.getMaxAge(),
-                    filterRequest.getMinAnnualIncome(),
-                    filterRequest.getMaxAnnualIncome(),
-                    filterRequest.getOccupation(),
-                    filterRequest.getLocation(),
-                    filterRequest.getEmployedAt() != null ? EmploymentType.valueOf(filterRequest.getEmployedAt()) : null, 
-                    filterRequest.getProfileImageStatus() != null ? filterRequest.getProfileImageStatus() : "N"
-            );
-            System.out.println("Filtered users: " + users);
+         
+            System.out.println("Filtered users:==============================> " + users.size());
             
-            if (users.isEmpty()) {
+            if (users.size() > 0) {
+                response.setCode(200);
+                response.setStatus(ResponseStatus.SUCCESS);
+                response.setMessage("Filtered users fetched successfully.");
+                response.setData(users);
+                return response;
+            }else{
                 response.setCode(404);
                 response.setStatus(ResponseStatus.FAILURE);
                 response.setMessage("No users found matching the criteria.");
                 return response;
-            }
+            }   
 
             // Take first 10 users (already shuffled by the query)
-            List<UserEntity> filteredUsers = users.subList(0, Math.min(users.size(), 10));
+            // List<UserEntity> filteredUsers = users.subList(0, Math.min(users.size(), 10));
 
-            response.setCode(200);
-            response.setStatus(ResponseStatus.SUCCESS);
-            response.setMessage("Filtered users fetched successfully.");
-            response.setData(filteredUsers);
+         
         } catch (Exception e) {
             response.setCode(500);
             response.setStatus(ResponseStatus.FAILURE);
@@ -589,6 +672,7 @@ public class UserService {
             userDetail.setUserId(userEntity.getUserId());
             userDetail.setPresentAddress(request.getCurrentAddress());
             userDetail.setDegree(request.getEducation());
+            userDetail.setEducationInDetail(request.getEducationInDetail());
             userDetail.setOccupation(request.getOccupation());
             userDetail.setJobPlace(request.getJobPlace());
             userDetail.setEmployedAt(EmploymentType.valueOf(request.getEmployingIn().toUpperCase()));
@@ -883,6 +967,28 @@ public class UserService {
             response.setCode(500);
             response.setStatus(ResponseStatus.FAILURE);
             response.setMessage("Error retrieving user status: " + e.getMessage());
+        }
+        return response;
+    }
+
+    public ResultResponse getProfileDetailByMemberId(String memberId, Gender gender, Integer casteId) {
+        ResultResponse response = new ResultResponse();
+        try {
+            Optional<UserEntity> user = userRepository.findByMemberIdAndGenderAndCasteId(memberId, gender, casteId);
+            if (user.isPresent()) {
+                response.setCode(200);
+                response.setStatus(ResponseStatus.SUCCESS);
+                response.setMessage("User profile retrieved successfully");
+                response.setData(user.get());
+            } else {
+                response.setCode(404);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("User not found");
+            }
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Error retrieving user profile: " + e.getMessage());
         }
         return response;
     }

@@ -11,8 +11,12 @@ import com.uravugal.matrimony.enums.ActiveStatus;
 import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.models.ChatEntity;
 import com.uravugal.matrimony.models.Conversation;
+import com.uravugal.matrimony.models.Notification;
+import com.uravugal.matrimony.models.UserEntity;
 import com.uravugal.matrimony.repositories.ChatRepository;
 import com.uravugal.matrimony.repositories.ConversationRepository;
+import com.uravugal.matrimony.repositories.NotificationRepository;
+import com.uravugal.matrimony.repositories.UserRepository;
 
 @Service
 public class ChatService {
@@ -22,6 +26,15 @@ public class ChatService {
 
     @Autowired
     private ConversationRepository conversationRepository;
+
+    @Autowired
+    private NotificationRepository notificationRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private PushNotificationService pushNotificationService;
 
     public ResultResponse sendChatMessage(ChatEntity request) {
         ResultResponse response = new ResultResponse();
@@ -37,6 +50,33 @@ public class ChatService {
             chatMessage.setIsActive(ActiveStatus.Y);
 
             chatRepository.save(chatMessage);
+
+            // ✅ Identify receiver (the other participant in the conversation)
+            Long receiverId = conversation.getUserOne().equals(request.getSenderId())
+                    ? conversation.getUserTwo()
+                    : conversation.getUserOne();
+
+            // ✅ Fetch both users
+            UserEntity sender = userRepository.findById(request.getSenderId()).orElse(null);
+            UserEntity receiver = userRepository.findById(receiverId).orElse(null);
+
+            if (sender != null && receiver != null) {
+                // ✅ Save notification in DB
+                Notification notification = new Notification();
+                notification.setSenderId(sender.getUserId());
+                notification.setReceiverId(receiverId);
+                notification.setMessage("sent you a message. ' " + request.getMessage() + "'");
+                notification.setNotificationCategory("MESSAGE");
+                notification.setTitle("New Message");
+                notificationRepository.save(notification);
+
+                // ✅ Send push notification
+                String senderName = sender.getFirstName() + " " + sender.getLastName();
+                pushNotificationService.sendPushNotificationToUser(
+                        receiverId,
+                        "New Message",
+                        senderName + " sent you a message. Tap to read it now!");
+            }
 
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);

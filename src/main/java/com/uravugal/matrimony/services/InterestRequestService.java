@@ -551,7 +551,7 @@ public class InterestRequestService {
 
             InterestRequest savedRequest = interestRequestRepository.save(request);
 
-            pushNotificationService.sendPushNotificationToUser(request.getInterestReceived(), "You’ve Received an Interest", "The user expressed in your profileSomeone has expressed interest in your profile. Check now to see who it is!");
+            pushNotificationService.sendPushNotificationToUser(request.getInterestReceived(), "You’ve Received an Interest", "The user expressed in your profile. Someone has expressed interest in your profile. Check now to see who it is!");
             // Create notification for the receiver
             Notification notification = new Notification();
             notification.setSenderId(request.getInterestSend());

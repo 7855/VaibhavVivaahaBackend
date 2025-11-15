@@ -37,40 +37,49 @@ public interface UserRepository extends JpaRepository<UserEntity,Long>{
             @Param("casteId") Integer casteId,
             @Param("active") ActiveStatus active);
 
-    @Query("""
-        SELECT u FROM UserEntity u 
-        JOIN u.userDetail ud
-        WHERE 
-            u.isActive = :active AND
-            (:gender IS NULL OR u.gender = :gender) AND
-            (:casteId IS NULL OR u.casteId = :casteId) AND
-            (:minAge IS NULL OR u.age >= :minAge) AND
-            (:maxAge IS NULL OR u.age <= :maxAge) AND
-            (:location IS NULL OR u.location = :location) AND
-            (:minAnnualIncome IS NULL OR CAST(ud.annualIncome AS INTEGER) >= CAST(:minAnnualIncome AS INTEGER)) AND
-            (:maxAnnualIncome IS NULL OR CAST(ud.annualIncome AS INTEGER) <= CAST(:maxAnnualIncome AS INTEGER)) AND
-            (:occupation IS NULL OR ud.occupation = :occupation) AND
-            (:employedAt IS NULL OR ud.employedAt = :employedAt)
-            AND (
-                (:profileImageStatus IS NULL OR :profileImageStatus = 'N') OR 
-                (:profileImageStatus = 'Y' AND u.profileImage IS NOT NULL)
-            )
-        ORDER BY RAND()
-    """)
-    List<UserEntity> findFilteredUsers(
-            @Param("active") ActiveStatus active,
-            @Param("gender") Gender gender,
-            @Param("casteId") Integer casteId,
-            @Param("minAge") String minAge,
-            @Param("maxAge") String maxAge,
-            @Param("minAnnualIncome") String minAnnualIncome,
-            @Param("maxAnnualIncome") String maxAnnualIncome,
-            @Param("occupation") String occupation,
-            @Param("location") String location,
-            @Param("employedAt") EmploymentType employedAt,
-            @Param("profileImageStatus") String profileImageStatus
-    );
 
+            @Query(value = """
+                SELECT u.* 
+                FROM users u
+                JOIN user_details ud ON u.userId = ud.userId
+                WHERE u.isActive = 'Y'
+                  AND (:gender IS NULL OR u.gender = :gender)
+                  AND (:casteId IS NULL OR u.casteId = :casteId)
+                  AND (:minAge IS NULL OR CAST(u.age AS UNSIGNED) >= :minAge)
+                  AND (:maxAge IS NULL OR CAST(u.age AS UNSIGNED) <= :maxAge)
+                  AND (:location IS NULL OR u.location = :location)
+                  AND (:minAnnualIncome IS NULL OR CAST(ud.annualIncome AS UNSIGNED) >= :minAnnualIncome)
+                  AND (:maxAnnualIncome IS NULL OR CAST(ud.annualIncome AS UNSIGNED) <= :maxAnnualIncome)
+                  AND (:occupation IS NULL OR ud.occupation = :occupation)
+                  AND (:employedAt IS NULL OR ud.employedAt = :employedAt)
+                  AND (:star IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(ud.astroInfo, '$[0].star')) = :star)
+                  AND (:dosham IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(ud.astroInfo, '$[0].dosham')) = :dosham)
+                  AND (:profileImageStatus IS NULL OR :profileImageStatus = 'N' OR (:profileImageStatus = 'Y' AND u.profileImage IS NOT NULL))
+AND (:profilesWithHoroscope IS NULL 
+     OR :profilesWithHoroscope = 'N' 
+     OR (:profilesWithHoroscope = 'Y' AND ud.horoscope IS NOT NULL))
+                ORDER BY RAND()
+            """, nativeQuery = true)
+            List<UserEntity> advanceFilter(
+                    @Param("gender") String gender,
+                    @Param("casteId") Integer casteId,
+                    @Param("minAge") Integer minAge,
+                    @Param("maxAge") Integer maxAge,
+                    @Param("minAnnualIncome") Integer minAnnualIncome,
+                    @Param("maxAnnualIncome") Integer maxAnnualIncome,
+                    @Param("occupation") String occupation,
+                    @Param("location") String location,
+                    @Param("employedAt") String employedAt,
+                    @Param("profileImageStatus") String profileImageStatus,
+                    @Param("star") String star,
+                    @Param("dosham") String dosham,
+                    @Param("profilesWithHoroscope") String profilesWithHoroscope
+            );
+            
+            
+            
+            
+            
     UserEntity findByMobile(String mobile);
 
     Optional<UserEntity> findByUserId(Long id);
@@ -85,5 +94,36 @@ public interface UserRepository extends JpaRepository<UserEntity,Long>{
 
     @Query(value = "SELECT memberId FROM users ORDER BY memberId DESC LIMIT 1", nativeQuery = true)
     String findLastMemberId();
-            
+
+
+    @Query("""
+        SELECT u FROM UserEntity u
+        JOIN u.userDetail ud
+        WHERE
+            u.isActive = :active AND
+            (:gender IS NULL OR u.gender = :gender) AND
+            (:casteId IS NULL OR u.casteId = :casteId) AND
+            (:minAge IS NULL OR u.age >= :minAge) AND
+            (:maxAge IS NULL OR u.age <= :maxAge) AND
+            (:location IS NULL OR u.location = :location)
+        AND (
+    :profileImageStatus IS NULL OR
+    :profileImageStatus = 'N' OR
+    (:profileImageStatus = 'Y' AND u.profileImage IS NOT NULL)
+)
+
+        ORDER BY function('RAND')
+    """)
+    List<UserEntity> normalFilter(
+            @Param("active") ActiveStatus active,
+            @Param("gender") Gender gender,
+            @Param("casteId") Integer casteId,
+            @Param("minAge") Integer minAge,
+            @Param("maxAge") Integer maxAge,
+            @Param("location") String location,
+            @Param("profileImageStatus") String profileImageStatus
+    );
+
+    Optional<UserEntity> findByMemberIdAndGenderAndCasteId(String memberId, Gender gender, Integer casteId);
+     
     }
