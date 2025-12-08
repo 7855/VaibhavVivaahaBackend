@@ -13,12 +13,14 @@ public interface KeyValueRepository extends JpaRepository<KeyValue, Long> {
      * @param key The key to check
      * @return true if a key-value pair with the given key exists, false otherwise
      */
-    boolean existsByKey(String key);
+    boolean existsByKeyColumn(String key);
     
     /**
      * Finds a key-value pair by its key
      * @param key The key to search for
      * @return An Optional containing the key-value pair if found, or empty if not found
      */
-    Optional<KeyValue> findByKey(String key);
+    Optional<KeyValue> findByKeyColumn(String key);
+
+    // KeyValue findByKeyColumn(String string);
 }

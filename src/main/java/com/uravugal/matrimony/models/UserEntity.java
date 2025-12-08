@@ -89,6 +89,9 @@ public class UserEntity extends GenericEntity{
     @Column(name = "isOnline")
     private boolean isOnline;
     
+    @Column(name = "profileCreated")
+    private String profileCreated;
+    
     @OneToMany
     @JoinColumn(name = "userId", referencedColumnName = "userId")
     List<UserDetailEntity> userDetail;

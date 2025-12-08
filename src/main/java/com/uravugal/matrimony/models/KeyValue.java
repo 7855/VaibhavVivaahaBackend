@@ -21,8 +21,8 @@ public class KeyValue {
 	    private Long id;
 	    
 	    @Column(name = "keyColumn")
-	    private String key;
+	    private String keyColumn;
 
 	    @Column(name = "valueColumn", columnDefinition = "JSON")
-	    private String value;
+	    private String valueColumn;
 }

@@ -12,6 +12,9 @@ import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.models.UserEntity;
 import com.uravugal.matrimony.services.UserService;
 import com.uravugal.matrimony.services.UserConnectionService;
+
+import java.util.HashMap;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
@@ -358,5 +361,31 @@ public class UserController {
         }
         return resp;
     }
+
+    @PostMapping(path ="/updateProfileImage", consumes={MediaType.MULTIPART_FORM_DATA_VALUE})
+	public ResultResponse updateProfileImage(@RequestPart("userId") String userId,@RequestPart("file") @Nullable MultipartFile file) {
+	    ResultResponse result = new ResultResponse();
+	    try {
+	        result = userService.updateProfileImage(userId, file);
+	    } catch (Exception e) {
+	        result.setCode(500);
+	        result.setMessage(e.getMessage());
+	        result.setStatus(ResponseStatus.FAILURE);
+	    }
+	    return result;
+	}
+
+    @PostMapping(path ="/createStarterProfile")
+	public ResultResponse createStarterProfile(@RequestBody HashMap<String, Object> request) {
+	    ResultResponse result = new ResultResponse();
+	    try {
+	        result = userService.createStarterProfile(request);
+	    } catch (Exception e) {
+	        result.setCode(500);
+	        result.setMessage(e.getMessage());
+	        result.setStatus(ResponseStatus.FAILURE);
+	    }
+	    return result;
+	}
     
 }

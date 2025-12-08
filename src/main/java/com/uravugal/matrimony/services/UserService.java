@@ -38,6 +38,7 @@ import java.time.LocalDateTime;
 import com.uravugal.matrimony.enums.IsUser;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.uravugal.matrimony.models.UserEntity;
 
 @Service
 public class UserService {
@@ -989,6 +990,28 @@ public class UserService {
             response.setCode(500);
             response.setStatus(ResponseStatus.FAILURE);
             response.setMessage("Error retrieving user profile: " + e.getMessage());
+        }
+        return response;
+    }
+
+    public ResultResponse createStarterProfile(HashMap<String,Object> request) {
+        ResultResponse response = new ResultResponse();
+        try {
+
+            UserEntity user = new UserEntity();
+            user.setFirstName(request.get("fullName").toString());
+            user.setMobile(request.get("mobileNumber").toString());
+            user.setProfileCreated(request.get("profileFor").toString());
+           
+            userRepository.save(user);
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage("Starter profile created successfully");
+            response.setData(user);
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Error creating starter profile: " + e.getMessage());
         }
         return response;
     }

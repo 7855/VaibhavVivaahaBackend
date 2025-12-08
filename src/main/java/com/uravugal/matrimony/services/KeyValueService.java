@@ -20,7 +20,7 @@ public class KeyValueService {
     public ResultResponse createKeyValue(KeyValue keyValue) {
         ResultResponse response = new ResultResponse();
         try {
-            if (keyValueRepository.existsByKey(keyValue.getKey())) {
+            if (keyValueRepository.existsByKeyColumn(keyValue.getKey())) {
                 response.setCode(HttpStatus.CONFLICT.value());
                 response.setMessage("Key already exists");
                 response.setStatus(ResponseStatus.FAILURE);
@@ -64,7 +64,7 @@ public class KeyValueService {
     public ResultResponse getKeyValueByKey(String key) {
         ResultResponse response = new ResultResponse();
         try {
-            Optional<KeyValue> keyValue = keyValueRepository.findByKey(key);
+            Optional<KeyValue> keyValue = keyValueRepository.findByKeyColumn(key);
             if (keyValue.isPresent()) {
                 response.setData(keyValue.get());
                 response.setCode(HttpStatus.OK.value());
@@ -107,16 +107,16 @@ public class KeyValueService {
                 KeyValue existingKeyValue = keyValueOptional.get();
                 
                 // Check if the new key already exists for a different record
-                if (!existingKeyValue.getKey().equals(keyValueDetails.getKey()) && 
-                    keyValueRepository.existsByKey(keyValueDetails.getKey())) {
+                if (!existingKeyValue.getKeyColumn().equals(keyValueDetails.getKeyColumn()) && 
+                    keyValueRepository.existsByKeyColumn(keyValueDetails.getKeyColumn())) {
                     response.setCode(HttpStatus.CONFLICT.value());
                     response.setMessage("Key already exists");
                     response.setStatus(ResponseStatus.FAILURE);
                     return response;
                 }
                 
-                existingKeyValue.setKey(keyValueDetails.getKey());
-                existingKeyValue.setValue(keyValueDetails.getValue());
+                existingKeyValue.setKeyColumn(keyValueDetails.getKeyColumn());
+                existingKeyValue.setValueColumn(keyValueDetails.getValueColumn());
                 
                 KeyValue updatedKeyValue = keyValueRepository.save(existingKeyValue);
                 response.setData(updatedKeyValue);
