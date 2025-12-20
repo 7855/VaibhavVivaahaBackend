@@ -362,18 +362,18 @@ public class UserController {
         return resp;
     }
 
-    @PostMapping(path ="/updateProfileImage", consumes={MediaType.MULTIPART_FORM_DATA_VALUE})
-	public ResultResponse updateProfileImage(@RequestPart("userId") String userId,@RequestPart("file") @Nullable MultipartFile file) {
-	    ResultResponse result = new ResultResponse();
-	    try {
-	        result = userService.updateProfileImage(userId, file);
-	    } catch (Exception e) {
-	        result.setCode(500);
-	        result.setMessage(e.getMessage());
-	        result.setStatus(ResponseStatus.FAILURE);
-	    }
-	    return result;
-	}
+    // @PostMapping(path ="/updateProfileImage", consumes={MediaType.MULTIPART_FORM_DATA_VALUE})
+	// public ResultResponse updateProfileImage(@RequestPart("userId") String userId,@RequestPart("file") @Nullable MultipartFile file) {
+	//     ResultResponse result = new ResultResponse();
+	//     try {
+	//         result = userService.updateProfileImage(userId, file);
+	//     } catch (Exception e) {
+	//         result.setCode(500);
+	//         result.setMessage(e.getMessage());
+	//         result.setStatus(ResponseStatus.FAILURE);
+	//     }
+	//     return result;
+	// }
 
     @PostMapping(path ="/createStarterProfile")
 	public ResultResponse createStarterProfile(@RequestBody HashMap<String, Object> request) {

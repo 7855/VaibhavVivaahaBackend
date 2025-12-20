@@ -20,7 +20,7 @@ public class KeyValueService {
     public ResultResponse createKeyValue(KeyValue keyValue) {
         ResultResponse response = new ResultResponse();
         try {
-            if (keyValueRepository.existsByKeyColumn(keyValue.getKey())) {
+            if (keyValueRepository.existsByKeyColumn(keyValue.getKeyColumn())) {
                 response.setCode(HttpStatus.CONFLICT.value());
                 response.setMessage("Key already exists");
                 response.setStatus(ResponseStatus.FAILURE);
