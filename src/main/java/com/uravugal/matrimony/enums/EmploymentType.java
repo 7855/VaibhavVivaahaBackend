@@ -1,6 +1,6 @@
 package com.uravugal.matrimony.enums;
 
 public enum EmploymentType {
-    PRIVATE,GOVT,SELF,NOJOB
+    PRIVATE,GOVT,SELF,NOJOB,UNEMPLOYED
 }
     

@@ -70,15 +70,15 @@ public class ViewedProfileService {
                 viewedProfile.setViewedBy(decodedViewerIdLong);
                 viewedProfileRepository.save(viewedProfile);
     
-                // Check WHO_VIEWED_YOU feature
-                Features whoViewedYouFeature = featuresRepository.findByCode("WHO_VIEWED_YOU");
+                // Check WHO_VIEWED feature (canonical code, see features table id=10)
+                Features whoViewedYouFeature = featuresRepository.findByCode("WHO_VIEWED");
     
                 if (whoViewedYouFeature != null) {
                     List<UserSubscriptions> userSubscriptions = userSubscriptionsRepository
                             .findByUserIdAndStatus(viewedUserId, SubscriptionStatus.ACTIVE);
     
                     if (!userSubscriptions.isEmpty() && !userSubscriptions.get(0).getId().equals(1L)) {
-                        PlanFeatures planFeature = planFeaturesRepository.findByFeatureIdAndPlanId(
+                        PlanFeatures planFeature = planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(
                                 whoViewedYouFeature.getId(),
                                 userSubscriptions.get(0).getSubscriptionPlanId());
     
@@ -135,15 +135,56 @@ public class ViewedProfileService {
             String decodedUserId = new String(Base64.getDecoder().decode(encodedUserId));
             Long userId = Long.parseLong(decodedUserId);
             System.out.println("userId: loged" + userId);
-            
+
+            // Plan gate: check if user's plan includes WHO_VIEWED_YOU feature
+            List<UserSubscriptions> userSubs = userSubscriptionsRepository
+                    .findByUserIdAndStatus(userId, SubscriptionStatus.ACTIVE);
+            if (userSubs.isEmpty() || userSubs.get(0).getSubscriptionPlanId() == 1) {
+                response.setCode(403);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("PLAN_UPGRADE_REQUIRED");
+                return response;
+            }
+
+            // Canonical feature code is WHO_VIEWED (see features table id=10)
+            Features whoViewedFeature = featuresRepository.findByCode("WHO_VIEWED");
+            PlanFeatures planFeature = null;
+            if (whoViewedFeature != null) {
+                planFeature = planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(
+                        whoViewedFeature.getId(),
+                        userSubs.get(0).getSubscriptionPlanId());
+            }
+            if (planFeature == null) {
+                response.setCode(403);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("PLAN_UPGRADE_REQUIRED");
+                return response;
+            }
+
+            // Determine viewer limit from planFeature.limitValue (-1 = unlimited)
+            int viewerLimit = -1;
+            try {
+                viewerLimit = Integer.parseInt(planFeature.getLimitValue());
+            } catch (NumberFormatException ignored) {
+                // "unlimited" or similar non-numeric value → no limit
+            }
+
             List<ViewedProfile> viewers = viewedProfileRepository.findByUserIdValue(userId);
-            
+
             if (viewers == null || viewers.isEmpty()) {
                 response.setCode(200);
                 response.setStatus(ResponseStatus.SUCCESS);
                 response.setMessage("No viewers found");
                 response.setData(new ArrayList<>());
                 return response;
+            }
+
+            // Sort most recent first, then apply plan-based limit
+            viewers = viewers.stream()
+                    .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
+                    .collect(Collectors.toList());
+            if (viewerLimit > 0 && viewers.size() > viewerLimit) {
+                viewers = viewers.subList(0, viewerLimit);
             }
             
             // Get user details for each viewer

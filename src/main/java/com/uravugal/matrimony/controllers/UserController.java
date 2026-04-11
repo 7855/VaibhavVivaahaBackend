@@ -14,6 +14,7 @@ import com.uravugal.matrimony.services.UserService;
 import com.uravugal.matrimony.services.UserConnectionService;
 
 import java.util.HashMap;
+import java.util.Base64;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -126,12 +127,22 @@ public class UserController {
     }
 
     @GetMapping("/getProfileDetailByUserId/{userId}")
-    public ResultResponse getProfileDetailByUserId(@PathVariable Long userId) {
+    public ResultResponse getProfileDetailByUserId(
+            @PathVariable String userId,
+            @RequestParam(required = false) String requesterId) {
         ResultResponse resp = new ResultResponse();
         try {
-            // Decode the Base64 encoded ID
-            System.out.println("=======================================>"+userId);
-            resp = userService.getProfileDetailByUserId(userId);
+            String decodedIdStr = new String(Base64.getDecoder().decode(userId));
+            Long decodedId = Long.parseLong(decodedIdStr);
+            System.out.println("=======================================>"+decodedId);
+
+            Long decodedRequesterId = null;
+            if (requesterId != null && !requesterId.isBlank()) {
+                String decodedRequesterIdStr = new String(Base64.getDecoder().decode(requesterId));
+                decodedRequesterId = Long.parseLong(decodedRequesterIdStr);
+            }
+
+            resp = userService.getProfileDetailByUserId(decodedId, decodedRequesterId);
         } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Something Went Wrong. " + e.getMessage());
@@ -139,6 +150,23 @@ public class UserController {
         }
         return resp;
     }
+
+        @GetMapping("/getProfileDetailWithIntractionStatus/{viewerId}/{profileUserId}")
+    public ResultResponse getProfileDetailWithIntractionStatus( @PathVariable String viewerId, @PathVariable Long profileUserId) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            // Decode the Base64 encoded ID
+            System.out.println("=======================================>"+profileUserId);
+            resp = userService.getProfileDetailWithIntractionStatus(viewerId, profileUserId);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
+
 
     @GetMapping("/getUserDetailByCasteId/{casteId}/{gender}")
     public ResultResponse getUserDetailByCaste(@PathVariable Integer casteId, @PathVariable Gender gender) {
@@ -328,6 +356,19 @@ public class UserController {
         ResultResponse resp = new ResultResponse();
         try {
             resp = userService.getUserPaidStatus(encodedUserId);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/deleteAccount/{encodedUserId}")
+    public ResultResponse deleteAccount(@PathVariable String encodedUserId) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            resp = userService.deleteAccount(encodedUserId);
         } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Something Went Wrong. " + e.getMessage());

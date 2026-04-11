@@ -84,7 +84,7 @@ public class UserLikesService {
                 if (!userSubscriptions.isEmpty() && !userSubscriptions.get(0).getId().equals(1L)) {
     
                     // Check if NOTIFICATIONS feature is part of the liked user's plan
-                    PlanFeatures planFeature = planFeaturesRepository.findByFeatureIdAndPlanId(
+                    PlanFeatures planFeature = planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(
                             notificationsFeature.getId(),
                             userSubscriptions.get(0).getSubscriptionPlanId());
     

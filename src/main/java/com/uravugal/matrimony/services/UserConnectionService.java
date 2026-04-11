@@ -1,6 +1,5 @@
 package com.uravugal.matrimony.services;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.uravugal.matrimony.dtos.MailboxUserDetail;
@@ -13,8 +12,12 @@ import com.uravugal.matrimony.models.UserConnectionEntity;
 import com.uravugal.matrimony.models.UserDetailEntity;
 import com.uravugal.matrimony.models.UserEntity;
 import com.uravugal.matrimony.repositories.UserConnectionRepository;
-import com.uravugal.matrimony.repositories.UserRepository;
 import com.uravugal.matrimony.repositories.UserDetailRepository;
+import com.uravugal.matrimony.repositories.UserLikesRepository;
+import com.uravugal.matrimony.repositories.UserRepository;
+import com.uravugal.matrimony.repositories.InterestRequestRepository;
+import com.uravugal.matrimony.repositories.ViewedProfileRepository;
+import com.uravugal.matrimony.enums.ApprovalStatus;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -30,17 +33,26 @@ import java.util.stream.Collectors;
 
 @Service
 public class UserConnectionService {
-    
+
     private final UserConnectionRepository userConnectionRepository;
     private final UserRepository userRepository;
     private final UserDetailRepository userDetailRepository;
-    
-    public UserConnectionService(UserConnectionRepository userConnectionRepository, 
-                                UserRepository userRepository, 
-                                UserDetailRepository userDetailRepository) {
+    private final UserLikesRepository userLikesRepository;
+    private final InterestRequestRepository interestRequestRepository;
+    private final ViewedProfileRepository viewedProfileRepository;
+
+    public UserConnectionService(UserConnectionRepository userConnectionRepository,
+            UserRepository userRepository,
+            UserDetailRepository userDetailRepository,
+            UserLikesRepository userLikesRepository,
+            InterestRequestRepository interestRequestRepository,
+            ViewedProfileRepository viewedProfileRepository) {
         this.userConnectionRepository = userConnectionRepository;
         this.userRepository = userRepository;
         this.userDetailRepository = userDetailRepository;
+        this.userLikesRepository = userLikesRepository;
+        this.interestRequestRepository = interestRequestRepository;
+        this.viewedProfileRepository = viewedProfileRepository;
     }
 
     public ResultResponse getConnectionCount(String encodedUserId) {
@@ -48,13 +60,12 @@ public class UserConnectionService {
         try {
             String decodedUserId = new String(Base64.getDecoder().decode(encodedUserId));
             Long userId = Long.parseLong(decodedUserId);
-            
+
             long count = userConnectionRepository.countByFollowerIdAndStatusAndIsActive(
-                userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y
-            ) + userConnectionRepository.countByFollowingIdAndStatusAndIsActive(
-                userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y
-            );
-            
+                    userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y)
+                    + userConnectionRepository.countByFollowingIdAndStatusAndIsActive(
+                            userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y);
+
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);
             response.setMessage("Connection count fetched successfully");
@@ -72,32 +83,36 @@ public class UserConnectionService {
         try {
             String decodedUserId = new String(Base64.getDecoder().decode(encodedUserId));
             Long userId = Long.parseLong(decodedUserId);
-            
+
             // Get both followers and following connections
-            List<UserConnectionEntity> followerConnections = userConnectionRepository.findByFollowerIdAndStatusAndIsActive(
-                userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y
-            );
-            List<UserConnectionEntity> followingConnections = userConnectionRepository.findByFollowingIdAndStatusAndIsActive(
-                userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y
-            );
+            List<UserConnectionEntity> followerConnections = userConnectionRepository
+                    .findByFollowerIdAndStatusAndIsActive(
+                            userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y);
+            List<UserConnectionEntity> followingConnections = userConnectionRepository
+                    .findByFollowingIdAndStatusAndIsActive(
+                            userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y);
 
             List<MailboxUserDetail> userDetails = new ArrayList<>();
-            
+
             // Add follower connections
             for (UserConnectionEntity connection : followerConnections) {
                 MailboxUserDetail detail = new MailboxUserDetail();
                 UserEntity user = userRepository.findById(connection.getFollowingId()).orElse(null);
                 UserDetailEntity userDetail = userDetailRepository.findByUserId(connection.getFollowingId());
-                
+
                 if (user != null && userDetail != null) {
                     detail.setUserId(user.getUserId());
                     detail.setFirstName(user.getFirstName());
                     detail.setLastName(user.getLastName());
                     detail.setProfileImage(user.getProfileImage());
-                    
+                    detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
+                    detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
+                    detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
+
                     if (userDetail != null) {
-                        detail.setAge(user.getDob() != null ? 
-                            (int) java.time.Period.between(user.getDob(), java.time.LocalDate.now()).getYears() : null);
+                        detail.setAge(user.getDob() != null
+                                ? (int) java.time.Period.between(user.getDob(), java.time.LocalDate.now()).getYears()
+                                : null);
                         detail.setDegree(userDetail.getDegree());
                         detail.setAnnualIncome(userDetail.getAnnualIncome());
                         detail.setOccupation(userDetail.getOccupation());
@@ -112,16 +127,20 @@ public class UserConnectionService {
                 MailboxUserDetail detail = new MailboxUserDetail();
                 UserEntity user = userRepository.findById(connection.getFollowerId()).orElse(null);
                 UserDetailEntity userDetail = userDetailRepository.findByUserId(connection.getFollowerId());
-                
+
                 if (user != null && userDetail != null) {
                     detail.setUserId(user.getUserId());
                     detail.setFirstName(user.getFirstName());
                     detail.setLastName(user.getLastName());
                     detail.setProfileImage(user.getProfileImage());
-                    
+                    detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
+                    detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
+                    detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
+
                     if (userDetail != null) {
-                        detail.setAge(user.getDob() != null ? 
-                            (int) java.time.Period.between(user.getDob(), java.time.LocalDate.now()).getYears() : null);
+                        detail.setAge(user.getDob() != null
+                                ? (int) java.time.Period.between(user.getDob(), java.time.LocalDate.now()).getYears()
+                                : null);
                         detail.setDegree(userDetail.getDegree());
                         detail.setAnnualIncome(userDetail.getAnnualIncome());
                         detail.setOccupation(userDetail.getOccupation());
@@ -150,7 +169,7 @@ public class UserConnectionService {
             UserEntity following = userRepository.findById(followingId).orElse(null);
 
             if (follower == null || following == null) {
-                response.setCode(404);  
+                response.setCode(404);
                 response.setStatus(ResponseStatus.FAILURE);
                 response.setMessage("User not found");
                 return response;
@@ -180,8 +199,9 @@ public class UserConnectionService {
         try {
             String decodedId = new String(Base64.getDecoder().decode(encodedId));
             Long userId = Long.parseLong(decodedId);
-            List<UserConnectionEntity> connections = userConnectionRepository.findByFollowingIdAndStatusAndIsActive(userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y);
-            
+            List<UserConnectionEntity> connections = userConnectionRepository
+                    .findByFollowingIdAndStatusAndIsActive(userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y);
+
             if (connections.isEmpty()) {
                 resp.setCode(404);
                 resp.setMessage("No followers found");
@@ -190,22 +210,22 @@ public class UserConnectionService {
             }
 
             List<UserConnectionResponse> followers = connections.stream()
-                .map(connection -> {
-                    UserEntity user = userRepository.findById(connection.getFollowerId()).orElse(null);
-                    if (user != null) {
-                        UserConnectionResponse response = new UserConnectionResponse();
-                        response.setUserId(user.getUserId());
-                        response.setMemberId(user.getMemberId());
-                        response.setFirstName(user.getFirstName());
-                        response.setLastName(user.getLastName());
-                        response.setProfileImage(user.getProfileImage());
-                        response.setStatus(connection.getStatus());
-                        return response;
-                    }
-                    return null;
-                })
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+                    .map(connection -> {
+                        UserEntity user = userRepository.findById(connection.getFollowerId()).orElse(null);
+                        if (user != null) {
+                            UserConnectionResponse response = new UserConnectionResponse();
+                            response.setUserId(user.getUserId());
+                            response.setMemberId(user.getMemberId());
+                            response.setFirstName(user.getFirstName());
+                            response.setLastName(user.getLastName());
+                            response.setProfileImage(user.getProfileImage());
+                            response.setStatus(connection.getStatus());
+                            return response;
+                        }
+                        return null;
+                    })
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
 
             resp.setCode(200);
             resp.setMessage("Followers list fetched successfully");
@@ -225,8 +245,9 @@ public class UserConnectionService {
         try {
             String decodedId = new String(Base64.getDecoder().decode(encodedId));
             Long userId = Long.parseLong(decodedId);
-            List<UserConnectionEntity> connections = userConnectionRepository.findByFollowerIdAndStatusAndIsActive(userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y);
-            
+            List<UserConnectionEntity> connections = userConnectionRepository
+                    .findByFollowerIdAndStatusAndIsActive(userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y);
+
             if (connections.isEmpty()) {
                 resp.setCode(404);
                 resp.setMessage("No following users found");
@@ -235,22 +256,22 @@ public class UserConnectionService {
             }
 
             List<UserConnectionResponse> following = connections.stream()
-                .map(connection -> {
-                    UserEntity user = userRepository.findById(connection.getFollowingId()).orElse(null);
-                    if (user != null) {
-                        UserConnectionResponse response = new UserConnectionResponse();
-                        response.setUserId(user.getUserId());
-                        response.setMemberId(user.getMemberId());
-                        response.setFirstName(user.getFirstName());
-                        response.setLastName(user.getLastName());
-                        response.setProfileImage(user.getProfileImage());
-                        response.setStatus(connection.getStatus());
-                        return response;
-                    }
-                    return null;
-                })
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+                    .map(connection -> {
+                        UserEntity user = userRepository.findById(connection.getFollowingId()).orElse(null);
+                        if (user != null) {
+                            UserConnectionResponse response = new UserConnectionResponse();
+                            response.setUserId(user.getUserId());
+                            response.setMemberId(user.getMemberId());
+                            response.setFirstName(user.getFirstName());
+                            response.setLastName(user.getLastName());
+                            response.setProfileImage(user.getProfileImage());
+                            response.setStatus(connection.getStatus());
+                            return response;
+                        }
+                        return null;
+                    })
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
 
             resp.setCode(200);
             resp.setMessage("Following list fetched successfully");
@@ -297,20 +318,22 @@ public class UserConnectionService {
             UserEntity user = userRepository.findById(userId).orElse(null);
             if (user != null) {
                 HashMap<String, Long> connectionCounts = new HashMap<>();
-                // Count all accepted connections where user is either follower or following
-                Long yourConnectionCount = userConnectionRepository.countByFollowerIdAndStatusAndIsActive(userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y) +
-                                         userConnectionRepository.countByFollowingIdAndStatusAndIsActive(userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y);
-                
+                Long yourConnectionCount = interestRequestRepository.countMatchesByUserIdAndStatus(userId,
+                        ApprovalStatus.APPROVED);
+
                 // Count all connections where user is the follower (interest sent)
-                Long interestSentCount = userConnectionRepository.countByFollowerIdAndIsActive(userId, ActiveStatus.Y);
-                
-                // Count accepted connections where user is being followed (interest accepted)
-                Long interestAcceptedCount = userConnectionRepository.countByFollowingIdAndStatusAndIsActive(userId, ConnectionStatus.ACCEPTED, ActiveStatus.Y);
-                
-                connectionCounts.put("YourConnection", yourConnectionCount);
-                connectionCounts.put("InterestSent", interestSentCount);
-                connectionCounts.put("InterestAccepted", interestAcceptedCount);
-                connectionCounts.put("viewCount", user.getViewCount().longValue());
+                Long interestSentCount = interestRequestRepository.countByInterestSend(userId);
+
+                // Count where user was viewed
+                Long viewsCount = viewedProfileRepository.countByUserIdValue(userId);
+
+                // Get the user's like count
+                Long likeCount = userLikesRepository.countByLikedToAndIsActive(userId, ActiveStatus.Y);
+
+                connectionCounts.put("Proposals", interestSentCount);
+                connectionCounts.put("Matches", yourConnectionCount);
+                connectionCounts.put("Admirers", viewsCount);
+                connectionCounts.put("Hearts", likeCount);
                 result.setCode(200);
                 result.setStatus(ResponseStatus.SUCCESS);
                 result.setMessage("User connection counts fetched successfully");
@@ -343,10 +366,11 @@ public class UserConnectionService {
                 return response;
             }
 
-            Optional<UserConnectionEntity> connection = userConnectionRepository.findByFollowerIdAndFollowingId(followerId, followingId);
+            Optional<UserConnectionEntity> connection = userConnectionRepository
+                    .findByFollowerIdAndFollowingId(followerId, followingId);
             if (connection.isPresent()) {
                 userConnectionRepository.delete(connection.get());
-                
+
                 response.setCode(200);
                 response.setStatus(ResponseStatus.SUCCESS);
                 response.setMessage("Unfollowed successfully");
@@ -369,7 +393,7 @@ public class UserConnectionService {
         try {
             String decodedId = new String(Base64.getDecoder().decode(encodedId));
             Long userId = Long.parseLong(decodedId);
-            
+
             UserEntity user = userRepository.findById(userId).orElse(null);
             if (user != null) {
                 user.setLastSeen(LocalDateTime.now());
@@ -402,7 +426,7 @@ public class UserConnectionService {
                 status.put("userId", user.getUserId());
                 status.put("lastSeen", user.getLastSeen());
                 status.put("isOnline", user.isOnline());
-                
+
                 result.setData(status);
                 result.setCode(200);
                 result.setStatus(ResponseStatus.SUCCESS);

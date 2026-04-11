@@ -121,6 +121,9 @@ public class RestrictedFieldRequestService {
                     userData.put("age", user.getAge());
                     userData.put("location", user.getLocation());
                     userData.put("profileImage", user.getProfileImage());
+                    userData.put("idVerified", Boolean.TRUE.equals(user.getIdVerified()));
+                    userData.put("educationVerified", Boolean.TRUE.equals(user.getEducationVerified()));
+                    userData.put("incomeVerified", Boolean.TRUE.equals(user.getIncomeVerified()));
                     
                     // Get additional details from UserDetailEntity
                     if (user.getUserDetail() != null && !user.getUserDetail().isEmpty()) {
@@ -236,6 +239,9 @@ public class RestrictedFieldRequestService {
                     userData.put("age", user.getAge());
                     userData.put("location", user.getLocation());
                     userData.put("profileImage", user.getProfileImage());
+                    userData.put("idVerified", Boolean.TRUE.equals(user.getIdVerified()));
+                    userData.put("educationVerified", Boolean.TRUE.equals(user.getEducationVerified()));
+                    userData.put("incomeVerified", Boolean.TRUE.equals(user.getIncomeVerified()));
                     
                     // Get additional details from UserDetailEntity
                     if (user.getUserDetail() != null && !user.getUserDetail().isEmpty()) {

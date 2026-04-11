@@ -112,4 +112,38 @@ public class InterestRequestController {
         @PathVariable Long receiverId) {
         return interestRequestService.getInterestRequestStatus(senderId, receiverId);
     }
+
+    @PostMapping("/send/{senderId}/{receiverId}")
+    public ResultResponse sendInterest(
+            @PathVariable String senderId,
+            @PathVariable Long receiverId
+    ) {
+        ResultResponse response = new ResultResponse();
+        try {
+            Long senderUserId = Long.parseLong(
+                    new String(Base64.getDecoder().decode(senderId))
+            );
+            System.out.println("controller senderid"+senderId);
+            System.out.println("controller receiver"+receiverId);
+
+
+            interestRequestService.sendInterestWithLimit(senderUserId, receiverId);
+
+            response.setCode(201);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage("Interest sent successfully");
+            return response;
+
+        } catch (RuntimeException e) {
+            response.setCode(403);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage(e.getMessage());
+            return response;
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Something went wrong");
+            return response;
+        }
+    }
 }

@@ -19,7 +19,13 @@ import org.springframework.stereotype.Service;
 import com.uravugal.matrimony.dtos.ResultResponse;
 import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.models.UserDeviceInformation;
+import com.uravugal.matrimony.models.Features;
+import com.uravugal.matrimony.models.PlanFeatures;
+import com.uravugal.matrimony.models.UserSubscriptions;
+import com.uravugal.matrimony.repositories.FeaturesRepository;
+import com.uravugal.matrimony.repositories.PlanFeaturesRepository;
 import com.uravugal.matrimony.repositories.PushNotificationRepository;
+import com.uravugal.matrimony.repositories.UserSubscriptionsRepository;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.Notification;
@@ -43,6 +49,15 @@ public class PushNotificationService {
 
     @Autowired
     private PushNotificationRepository pushNotificationRepository;
+
+    @Autowired
+    private UserSubscriptionsRepository userSubscriptionsRepository;
+
+    @Autowired
+    private FeaturesRepository featuresRepository;
+
+    @Autowired
+    private PlanFeaturesRepository planFeaturesRepository;
 
     public ResultResponse updateFcmTokenForUser(Map<String, String> request) {
         ResultResponse response = new ResultResponse();
@@ -262,6 +277,28 @@ public class PushNotificationService {
                 response.setMessage("Title and body cannot be empty");
                 return response;
             }
+
+            // Plan gate: NOTIFICATION_ALERT (Classic+ per matrix). Free + Starter = silent skip.
+            try {
+                UserSubscriptions sub = userSubscriptionsRepository.findTopByUserIdOrderByCreatedAtDesc(userId);
+                if (sub == null || sub.getSubscriptionPlanId() == 1L || sub.getSubscriptionPlanId() == 2L) {
+                    response.setStatus(ResponseStatus.SUCCESS);
+                    response.setCode(200);
+                    response.setMessage("Notification skipped — receiver plan does not include NOTIFICATION_ALERT");
+                    return response;
+                }
+                Features feature = featuresRepository.findByCode("NOTIFICATION_ALERT");
+                if (feature != null) {
+                    PlanFeatures pf = planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(
+                            feature.getId(), sub.getSubscriptionPlanId());
+                    if (pf == null) {
+                        response.setStatus(ResponseStatus.SUCCESS);
+                        response.setCode(200);
+                        response.setMessage("Notification skipped — feature not in plan");
+                        return response;
+                    }
+                }
+            } catch (Exception ignored) { /* fail-open on plan lookup errors */ }
 
             List<UserDeviceInformation> deviceInfoList = pushNotificationRepository.findAllByUserId(userId);
             if (!deviceInfoList.isEmpty()) {

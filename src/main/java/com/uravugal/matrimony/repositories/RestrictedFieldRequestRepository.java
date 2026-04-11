@@ -23,4 +23,6 @@ public interface RestrictedFieldRequestRepository extends JpaRepository<Restrict
 
     List<RestrictedFieldRequest> findByRequestedByAndRequestedToAndIsActive(Long requestById, Long requestToId,
             ActiveStatus y);
+
+    Page<RestrictedFieldRequest> findByFieldType(String fieldType, Pageable pageable);
 }

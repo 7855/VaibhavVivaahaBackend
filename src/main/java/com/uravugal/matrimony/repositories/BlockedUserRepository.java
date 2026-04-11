@@ -25,4 +25,16 @@ public interface BlockedUserRepository extends JpaRepository<BlockedUser, Long> 
 
     BlockedUser findByBlockedByUserIdAndBlockedUserId(Long blockedByUserId, Long blockedUserId);
 
+    /**
+     * Returns every userId that is blocked-adjacent to :userId —
+     * people :userId blocked AND people who blocked :userId.
+     * Native SQL because JPQL doesn't support UNION.
+     */
+    @Query(value =
+        "SELECT blockedUserId AS id FROM blockedUsers WHERE blockedByUserId = :userId " +
+        "UNION " +
+        "SELECT blockedByUserId AS id FROM blockedUsers WHERE blockedUserId = :userId",
+        nativeQuery = true)
+    List<Long> findBlockAdjacentUserIds(@Param("userId") Long userId);
+
 }

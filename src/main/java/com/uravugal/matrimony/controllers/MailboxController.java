@@ -50,6 +50,15 @@ public class MailboxController {
         return restrictedFieldRequestService.getReceivedRequests(encodedId, page, size);
     }
 
+    @GetMapping("/whoShortlistedMe/{encodedId}")
+    public PaginatedResultResponse getWhoShortlistedMe(
+        @PathVariable String encodedId,
+        @RequestParam(defaultValue = "0") Integer page,
+        @RequestParam(defaultValue = "10") Integer size
+    ) {
+        return shortlistedProfileService.getWhoShortlistedMe(encodedId, page, size);
+    }
+
     @GetMapping("/shortlisted/{encodedId}")
     public PaginatedResultResponse getShortlistedProfiles(
         @PathVariable String encodedId,

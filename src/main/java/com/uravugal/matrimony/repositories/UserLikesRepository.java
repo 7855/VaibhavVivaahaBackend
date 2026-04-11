@@ -21,4 +21,6 @@ public interface UserLikesRepository extends JpaRepository<UserLikes, Long> {
     @Query("DELETE FROM UserLikes u WHERE u.likedBy = :likedBy AND u.likedTo = :likedTo")
     void deleteByLikerAndLikedUser(@Param("likedBy") Long likedBy, @Param("likedTo") Long likedTo);
     
+    long countByLikedToAndIsActive(Long likedTo, com.uravugal.matrimony.enums.ActiveStatus isActive);
+    
 }

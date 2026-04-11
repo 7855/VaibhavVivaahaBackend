@@ -3,7 +3,9 @@ package com.uravugal.matrimony.enums;
 public enum ApprovalStatus {
     PENDING("PENDING"),
     REJECTED("REJECTED"),
-    APPROVED("ACCEPTED");
+    APPROVED("ACCEPTED"),
+    SUSPENDED("SUSPENDED"),
+    BANNED("BANNED");
     
     private final String value;
     

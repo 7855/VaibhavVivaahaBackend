@@ -1,5 +1,5 @@
 package com.uravugal.matrimony.enums;
 
 public enum UserStatus {
-    APPROVED, REJECTED
+    PENDING, APPROVED, REJECTED, SUSPENDED, BANNED
 }

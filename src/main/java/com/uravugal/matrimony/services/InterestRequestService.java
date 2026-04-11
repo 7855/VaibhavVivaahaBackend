@@ -6,19 +6,26 @@ import com.uravugal.matrimony.dtos.PaginationData;
 import com.uravugal.matrimony.dtos.ResultResponse;
 import com.uravugal.matrimony.models.ChatEntity;
 import com.uravugal.matrimony.models.Conversation;
+import com.uravugal.matrimony.models.Features;
 import com.uravugal.matrimony.models.InterestRequest;
 import com.uravugal.matrimony.models.Notification;
 import com.uravugal.matrimony.models.UserEntity;
+import com.uravugal.matrimony.models.UserSubscriptions;
 import com.uravugal.matrimony.models.UserDetailEntity;
 import com.uravugal.matrimony.enums.ApprovalStatus;
 import com.uravugal.matrimony.enums.ChatStatus;
+import com.uravugal.matrimony.enums.FeatureType;
 import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.repositories.ChatRepository;
 import com.uravugal.matrimony.repositories.ConversationRepository;
+import com.uravugal.matrimony.repositories.FeaturesRepository;
 import com.uravugal.matrimony.repositories.InterestRequestRepository;
 import com.uravugal.matrimony.repositories.NotificationRepository;
 import com.uravugal.matrimony.repositories.UserDetailRepository;
 import com.uravugal.matrimony.repositories.UserRepository;
+import com.uravugal.matrimony.repositories.UserSubscriptionsRepository;
+
+import jakarta.transaction.Transactional;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -55,6 +62,19 @@ public class InterestRequestService {
     @Autowired
     private PushNotificationService pushNotificationService;
 
+    @Autowired
+    private UserSubscriptionsRepository userSubscriptionsRepository;
+
+    @Autowired
+    private UserFeatureUsageService userFeatureUsageService;
+
+    @Autowired
+    private FeaturesRepository featuresRepository;
+
+    @Autowired
+    private com.uravugal.matrimony.repositories.BlockedUserRepository blockedUserRepository;
+
+
     public PaginatedResultResponse getReceivedRequests(String encodedId, Integer page, Integer size) {
         PaginatedResultResponse resp = new PaginatedResultResponse();
         try {
@@ -66,7 +86,7 @@ public class InterestRequestService {
             );
 
             System.out.println("requests========================>"+requests.getContent());
-            
+
             if (requests.isEmpty()) {
                 resp.setCode(404);
                 resp.setMessage("No interest requests received");
@@ -74,8 +94,13 @@ public class InterestRequestService {
                 return resp;
             }
 
+            // Block filter: skip requests from users blocked by or blocking the viewer
+            java.util.Set<Long> blockedIds = new java.util.HashSet<>(
+                    blockedUserRepository.findBlockAdjacentUserIds(userId));
+
             // Fetch user details for each request
             List<MailboxUserDetail> userDetails = requests.getContent().stream()
+                .filter(request -> !blockedIds.contains(request.getInterestSend()))
                 .map(request -> {
                     MailboxUserDetail detail = new MailboxUserDetail();
                     UserEntity user = userRepository.findById(request.getInterestSend()).orElse(null);
@@ -86,6 +111,9 @@ public class InterestRequestService {
                         detail.setFirstName(user.getFirstName());
                         detail.setLastName(user.getLastName());
                         detail.setProfileImage(user.getProfileImage());
+                        detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
+                        detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
+                        detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
                         
                         if (userDetail != null) {
                             detail.setAge(user.getDob() != null ? 
@@ -151,6 +179,9 @@ public class InterestRequestService {
                         detail.setFirstName(user.getFirstName());
                         detail.setLastName(user.getLastName());
                         detail.setProfileImage(user.getProfileImage());
+                        detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
+                        detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
+                        detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
                         
                         if (userDetail != null) {
                             detail.setAge(user.getDob() != null ? 
@@ -216,6 +247,9 @@ public class InterestRequestService {
                         detail.setFirstName(user.getFirstName());
                         detail.setLastName(user.getLastName());
                         detail.setProfileImage(user.getProfileImage());
+                        detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
+                        detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
+                        detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
                         
                         if (userDetail != null) {
                             detail.setAge(user.getDob() != null ? 
@@ -269,8 +303,13 @@ public class InterestRequestService {
                 return resp;
             }
 
+            // Block filter
+            java.util.Set<Long> blockedIds = new java.util.HashSet<>(
+                    blockedUserRepository.findBlockAdjacentUserIds(userId));
+
             // Fetch user details for each request
             List<MailboxUserDetail> userDetails = requests.getContent().stream()
+                .filter(request -> !blockedIds.contains(request.getInterestReceived()))
                 .map(request -> {
                     MailboxUserDetail detail = new MailboxUserDetail();
                     UserEntity user = userRepository.findById(request.getInterestReceived()).orElse(null);
@@ -281,6 +320,9 @@ public class InterestRequestService {
                         detail.setFirstName(user.getFirstName());
                         detail.setLastName(user.getLastName());
                         detail.setProfileImage(user.getProfileImage());
+                        detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
+                        detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
+                        detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
                         
                         if (userDetail != null) {
                             detail.setAge(user.getDob() != null ? 
@@ -346,6 +388,9 @@ public class InterestRequestService {
                         detail.setFirstName(user.getFirstName());
                         detail.setLastName(user.getLastName());
                         detail.setProfileImage(user.getProfileImage());
+                        detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
+                        detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
+                        detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
                         
                         if (userDetail != null) {
                             detail.setAge(user.getDob() != null ? 
@@ -399,25 +444,44 @@ public class InterestRequestService {
             interestRequestRepository.save(request);
 
             if(status == ApprovalStatus.APPROVED) {
-                System.out.println("getId: " + request.getId());
-                System.out.println("getInterestSend: " + request.getInterestSend());
-                System.out.println("getInterestReceived: " + request.getInterestReceived());
-                
-                Conversation convo = conversationRepository.findByUserOneAndUserTwo(request.getInterestSend(), request.getInterestReceived());
-                System.out.println("Conversation: " + convo);
+                // Find conversation (normalized: smaller userId = userOne)
+                Long minId = Math.min(request.getInterestSend(), request.getInterestReceived());
+                Long maxId = Math.max(request.getInterestSend(), request.getInterestReceived());
+                Conversation convo = conversationRepository.findByUserOneAndUserTwo(minId, maxId);
+                // Fallback: try original order if normalized lookup fails (for old data)
+                if (convo == null) {
+                    convo = conversationRepository.findByUserOneAndUserTwo(request.getInterestSend(), request.getInterestReceived());
+                }
                 if(convo != null) {
-                    System.out.println("Conversation not null");
                     convo.setStatus(ChatStatus.ACCEPTED);
                     conversationRepository.save(convo);
-                    System.out.println("Conversation saved");
 
                     ChatEntity chat = new ChatEntity();
                     chat.setConversationId(convo.getId());
                     chat.setSenderId(request.getInterestReceived());
                     chat.setMessage("Interest request approved. I have liked your profile too. Let's discuss further details.");
                     chatRepository.save(chat);
-                    System.out.println("Chat saved");
                 }
+
+                // Push notification to the original sender that their interest was ACCEPTED
+                UserEntity acceptedBy = userRepository.findById(request.getInterestReceived()).orElse(null);
+                String acceptorName = acceptedBy != null
+                    ? acceptedBy.getFirstName() + " " + acceptedBy.getLastName()
+                    : "Someone";
+                pushNotificationService.sendPushNotificationToUser(
+                    request.getInterestSend(),
+                    "Interest Accepted! 🎉",
+                    acceptorName + " accepted your interest request. Start chatting now!"
+                );
+
+                // Save in-app notification
+                Notification notification = new Notification();
+                notification.setSenderId(request.getInterestReceived());
+                notification.setReceiverId(request.getInterestSend());
+                notification.setTitle("Interest Accepted");
+                notification.setMessage("accepted your interest request");
+                notification.setNotificationCategory("INTEREST_ACCEPTED");
+                notificationRepository.save(notification);
             }
 
             resp.setCode(200);
@@ -551,7 +615,7 @@ public class InterestRequestService {
 
             InterestRequest savedRequest = interestRequestRepository.save(request);
 
-            pushNotificationService.sendPushNotificationToUser(request.getInterestReceived(), "You’ve Received an Interest", "The user expressed in your profile. Someone has expressed interest in your profile. Check now to see who it is!");
+            pushNotificationService.sendPushNotificationToUser(request.getInterestReceived(), "You���ve Received an Interest", "The user expressed in your profile. Someone has expressed interest in your profile. Check now to see who it is!");
             // Create notification for the receiver
             Notification notification = new Notification();
             notification.setSenderId(request.getInterestSend());
@@ -561,12 +625,14 @@ public class InterestRequestService {
             notification.setTitle("Interest Expressed");
             notificationRepository.save(notification);
 
-            // Create conversation
+            // Create conversation (normalize: smaller userId = userOne for bidirectional uniqueness)
             Conversation conversation = new Conversation();
-            conversation.setUserOne(request.getInterestSend());
-            conversation.setUserTwo(request.getInterestReceived());
+            Long sendId = request.getInterestSend();
+            Long recvId = request.getInterestReceived();
+            conversation.setUserOne(Math.min(sendId, recvId));
+            conversation.setUserTwo(Math.max(sendId, recvId));
             conversation.setStatus(ChatStatus.PENDING);
-            conversation.setInitiatedBy(request.getInterestSend());
+            conversation.setInitiatedBy(sendId);
             Conversation savedConversation = conversationRepository.save(conversation);
 
             // Create chat entity
@@ -616,6 +682,9 @@ public class InterestRequestService {
                     detail.setFirstName(user.getFirstName());
                     detail.setLastName(user.getLastName());
                     detail.setProfileImage(user.getProfileImage());
+                    detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
+                    detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
+                    detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
                     
                     detail.setAge(user.getDob() != null ? 
                         (int) java.time.Period.between(user.getDob(), java.time.LocalDate.now()).getYears() : null);
@@ -639,6 +708,9 @@ public class InterestRequestService {
                     detail.setFirstName(user.getFirstName());
                     detail.setLastName(user.getLastName());
                     detail.setProfileImage(user.getProfileImage());
+                    detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
+                    detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
+                    detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
                     
                     detail.setAge(user.getDob() != null ? 
                         (int) java.time.Period.between(user.getDob(), java.time.LocalDate.now()).getYears() : null);
@@ -708,5 +780,80 @@ public class InterestRequestService {
             response.setMessage("Error checking interest request status: " + e.getMessage());
         }
         return response;
+    }
+
+    @Transactional
+    public void sendInterestWithLimit(Long senderId, Long receiverId) {
+
+        // 0️⃣ Block gate
+        com.uravugal.matrimony.models.BlockedUser block = blockedUserRepository
+                .findByUsersEitherDirection(senderId, receiverId);
+        if (block != null) {
+            throw new RuntimeException("USER_BLOCKED");
+        }
+
+        // 1️⃣ Check duplicate request
+        if (interestRequestRepository
+                .existsByInterestSendAndInterestReceived(senderId, receiverId)) {
+            throw new RuntimeException("INTEREST_ALREADY_SENT");
+        }
+
+        // 2️⃣ Fetch active subscription
+        UserSubscriptions subscription =
+                userSubscriptionsRepository.findTopByUserIdOrderByCreatedAtDesc(senderId);
+
+        Features feature = featuresRepository.findByCode("REQ_LIMITED");
+
+    
+
+        if (subscription == null) {
+            throw new RuntimeException("NO_ACTIVE_SUBSCRIPTION");
+        }
+        System.out.println("subscription=============>"+subscription);
+
+        // 3️⃣ Validate & increment usage (FEATURE_ID = SEND_INTEREST)
+        userFeatureUsageService.validateAndIncrementUsage(
+                senderId,
+                subscription.getId(),
+                feature.getId()        );
+        System.out.println("After used feature");
+
+        // 4️⃣ Create interest request
+        InterestRequest request = new InterestRequest();
+        request.setInterestSend(senderId);
+        request.setInterestReceived(receiverId);
+        request.setAcceptStatus(ApprovalStatus.PENDING);
+        interestRequestRepository.save(request);
+
+        // 5️⃣ Push notification
+        pushNotificationService.sendPushNotificationToUser(
+                receiverId,
+                "You’ve Received an Interest",
+                "Someone has expressed interest in your profile"
+        );
+
+        // 6️⃣ Save notification
+        Notification notification = new Notification();
+        notification.setSenderId(senderId);
+        notification.setReceiverId(receiverId);
+        notification.setTitle("Interest Expressed");
+        notification.setMessage("Expressed interest in your profile");
+        notification.setNotificationCategory("INTEREST");
+        notificationRepository.save(notification);
+
+        // 7️⃣ Create conversation (normalize: smaller userId = userOne)
+        Conversation conversation = new Conversation();
+        conversation.setUserOne(Math.min(senderId, receiverId));
+        conversation.setUserTwo(Math.max(senderId, receiverId));
+        conversation.setStatus(ChatStatus.PENDING);
+        conversation.setInitiatedBy(senderId);
+        Conversation savedConversation = conversationRepository.save(conversation);
+
+        // 8️⃣ Initial chat message
+        ChatEntity chat = new ChatEntity();
+        chat.setConversationId(savedConversation.getId());
+        chat.setSenderId(senderId);
+        chat.setMessage("I have liked your profile. Please approve my request.");
+        chatRepository.save(chat);
     }
 }

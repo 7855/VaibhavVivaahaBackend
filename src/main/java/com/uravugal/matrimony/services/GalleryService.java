@@ -34,6 +34,7 @@ public class GalleryService {
 
     private static final String AWS_BASE_PATH = "userGallery/";
     private static final String AWS_BASE_PATH_HO = "userHoroscope/";
+    private static final int MAX_GALLERY_PHOTOS = 3;
 
     
     @Autowired
@@ -97,38 +98,41 @@ public class GalleryService {
                 return response;
             }
             
+            // Check gallery photo limit
+            List<GalleryEntity> existingImages = galleryRepository.findByUserIdAndIsActive(id, ActiveStatus.Y);
+            if (existingImages.size() >= MAX_GALLERY_PHOTOS) {
+                response.setCode(400);
+                response.setMessage("Maximum " + MAX_GALLERY_PHOTOS + " gallery photos allowed. Please delete an existing photo first.");
+                response.setStatus(ResponseStatus.FAILURE);
+                return response;
+            }
+
             if (file != null && !file.isEmpty()) {
                 try {
                     // Generate a unique file name
                     String fileName = "profile_" + System.currentTimeMillis() + "_"
                             + UUID.randomUUID().toString().substring(0, 6)
                             + "." + getFileExtension(file.getOriginalFilename());
-                    
-                    // Create a temporary file
-                    File tempFile = File.createTempFile("temp-", fileName);
+
+                    // Create a temporary file with the EXACT target name so S3 uses it
+                    File tempDir = new File(System.getProperty("java.io.tmpdir"));
+                    File tempFile = new File(tempDir, fileName);
                     file.transferTo(tempFile);
-                    
-                    // Upload to S3
+
+                    // Upload to S3 — uses fileName as the actual S3 key
                     String fileUrl = s3UploadService.uploadGalleryImage(tempFile, AWS_BASE_PATH + "user_" + userId);
                     System.out.println("File URL: ------>" + fileUrl);
-                    
-                    // Extract the key part from the URL if needed
-                    int startIndex = fileUrl.indexOf("https://");
-                    if (startIndex != -1) {
-                        String domain = fileUrl.substring(0, fileUrl.indexOf("/", 8)); // Get domain part
-                        fileUrl = domain + "/" + AWS_BASE_PATH + "user_" + userId + "/" + fileName;
-                    }
-                    
+
+                    // Delete temp file after upload
+                    tempFile.delete();
+
                     // Update user's Gallery Record
-                    
                     GalleryEntity galleryEntity = new GalleryEntity();
                     galleryEntity.setUserId(id);
                     galleryEntity.setIsActive(ActiveStatus.Y);
                     galleryEntity.setUserImage(fileUrl);
                     galleryRepository.save(galleryEntity);
-                    // Delete the temporary file
-                    tempFile.delete();
-                    
+
                     response.setCode(200);
                     response.setMessage("Profile image updated successfully");
                     response.setStatus(ResponseStatus.SUCCESS);
@@ -180,25 +184,22 @@ public class GalleryService {
             if (file != null && !file.isEmpty()) {
                 try {
                     // Generate a unique file name
-                    String fileName = "profile_" + System.currentTimeMillis() + "_"
+                    String fileName = "horoscope_" + System.currentTimeMillis() + "_"
                             + UUID.randomUUID().toString().substring(0, 6)
                             + "." + getFileExtension(file.getOriginalFilename());
-                    
-                    // Create a temporary file
-                    File tempFile = File.createTempFile("temp-", fileName);
+
+                    // Create a temporary file with the EXACT target name so S3 uses it
+                    File tempDir = new File(System.getProperty("java.io.tmpdir"));
+                    File tempFile = new File(tempDir, fileName);
                     file.transferTo(tempFile);
-                    
-                    // Upload to S3
+
+                    // Upload to S3 — uses fileName as the actual S3 key
                     String fileUrl = s3UploadService.uploadGalleryImage(tempFile, AWS_BASE_PATH_HO + "user_" + userId);
                     System.out.println("File URL: ------>" + fileUrl);
-                    
-                    // Extract the key part from the URL if needed
-                    int startIndex = fileUrl.indexOf("https://");
-                    if (startIndex != -1) {
-                        String domain = fileUrl.substring(0, fileUrl.indexOf("/", 8)); // Get domain part
-                        fileUrl = domain + "/" + AWS_BASE_PATH_HO + "user_" + userId + "/" + fileName;
-                    }
-                    
+
+                    // Delete temp file after upload
+                    tempFile.delete();
+
                     // Update user's Horoscope Record
                      UserDetailEntity userDetail = userDetailRepository.findByUserId(id);
                      Boolean isCreate = userDetail.getHoroscope() == null;
@@ -206,10 +207,6 @@ public class GalleryService {
                         userDetail.setHoroscope(fileUrl);
                         userDetailRepository.save(userDetail);
                      }
-                    
-                    
-                    // Delete the temporary file
-                    tempFile.delete();
                     
                     response.setCode(isCreate ? 200 : 201);
                     response.setMessage(isCreate ? "Horoscope image created successfully":"Horoscope image updated successfully");
@@ -239,5 +236,33 @@ public class GalleryService {
         return response;
     }
 
-    
+    public ResultResponse deleteHoroscope(String encodedUserId) {
+        ResultResponse response = new ResultResponse();
+        try {
+            Long userId = Long.parseLong(new String(java.util.Base64.getDecoder().decode(encodedUserId)));
+            UserDetailEntity userDetail = userDetailRepository.findByUserId(userId);
+            if (userDetail == null) {
+                response.setCode(404);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("User details not found");
+                return response;
+            }
+            if (userDetail.getHoroscope() == null || userDetail.getHoroscope().isBlank()) {
+                response.setCode(404);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("No horoscope image to delete");
+                return response;
+            }
+            userDetail.setHoroscope(null);
+            userDetailRepository.save(userDetail);
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage("Horoscope image deleted successfully");
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Error deleting horoscope: " + e.getMessage());
+        }
+        return response;
+    }
 }

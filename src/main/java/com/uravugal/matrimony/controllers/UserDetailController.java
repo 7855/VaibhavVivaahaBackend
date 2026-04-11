@@ -4,6 +4,7 @@ import com.uravugal.matrimony.dtos.*;
 import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.models.UserDetailEntity;
 import com.uravugal.matrimony.services.UserDetailService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,7 +16,7 @@ public class UserDetailController {
     private UserDetailService userDetailService;
 
     @PostMapping("/update-astrology-info")
-    public ResultResponse updateAstrologyInfo(@RequestBody AstrologyInfoRequest request) {
+    public ResultResponse updateAstrologyInfo(@Valid @RequestBody AstrologyInfoRequest request) {
         ResultResponse resp = new ResultResponse();
         try {
             userDetailService.updateAstrologyInfo(request);
@@ -31,7 +32,7 @@ public class UserDetailController {
     }
 
     @PostMapping("/update-personal-info")
-    public ResultResponse updatePersonalInfo(@RequestBody PersonalInfoRequest request) {
+    public ResultResponse updatePersonalInfo(@Valid @RequestBody PersonalInfoRequest request) {
         ResultResponse resp = new ResultResponse();
         try {
             userDetailService.updatePersonalInfo(request);
@@ -47,7 +48,7 @@ public class UserDetailController {
     }
 
     @PostMapping("/update-education-info")
-    public ResultResponse updateEducationInfo(@RequestBody EducationInfoRequest request) {
+    public ResultResponse updateEducationInfo(@Valid @RequestBody EducationInfoRequest request) {
         ResultResponse resp = new ResultResponse();
         try {
             userDetailService.updateEducationInfo(request);
@@ -63,7 +64,7 @@ public class UserDetailController {
     }
 
     @PostMapping("/update-family-info")
-    public ResultResponse updateFamilyInfo(@RequestBody FamilyInfoRequest request) {
+    public ResultResponse updateFamilyInfo(@Valid @RequestBody FamilyInfoRequest request) {
         ResultResponse resp = new ResultResponse();
         try {
             userDetailService.updateFamilyInfo(request);

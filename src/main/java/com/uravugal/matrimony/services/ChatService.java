@@ -11,16 +11,23 @@ import com.uravugal.matrimony.enums.ActiveStatus;
 import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.models.ChatEntity;
 import com.uravugal.matrimony.models.Conversation;
+import com.uravugal.matrimony.models.Features;
 import com.uravugal.matrimony.models.Notification;
+import com.uravugal.matrimony.models.PlanFeatures;
 import com.uravugal.matrimony.models.UserEntity;
+import com.uravugal.matrimony.models.UserSubscriptions;
+import com.uravugal.matrimony.config.UserWebSocketHandler;
 import com.uravugal.matrimony.repositories.ChatRepository;
 import com.uravugal.matrimony.repositories.ConversationRepository;
+import com.uravugal.matrimony.repositories.FeaturesRepository;
 import com.uravugal.matrimony.repositories.NotificationRepository;
+import com.uravugal.matrimony.repositories.PlanFeaturesRepository;
 import com.uravugal.matrimony.repositories.UserRepository;
+import com.uravugal.matrimony.repositories.UserSubscriptionsRepository;
 
 @Service
 public class ChatService {
-    
+
     @Autowired
     private ChatRepository chatRepository;
 
@@ -36,9 +43,54 @@ public class ChatService {
     @Autowired
     private PushNotificationService pushNotificationService;
 
+    @Autowired
+    private UserSubscriptionsRepository userSubscriptionsRepository;
+
+    @Autowired
+    private FeaturesRepository featuresRepository;
+
+    @Autowired
+    private PlanFeaturesRepository planFeaturesRepository;
+
+    @Autowired
+    private com.uravugal.matrimony.repositories.BlockedUserRepository blockedUserRepository;
+
     public ResultResponse sendChatMessage(ChatEntity request) {
         ResultResponse response = new ResultResponse();
         try {
+            // Block gate: if either side has blocked the other, reject
+            if (request.getSenderId() != null && request.getReceiverId() != null) {
+                com.uravugal.matrimony.models.BlockedUser block = blockedUserRepository
+                        .findByUsersEitherDirection(request.getSenderId(), request.getReceiverId());
+                if (block != null) {
+                    response.setCode(403);
+                    response.setStatus(ResponseStatus.FAILURE);
+                    response.setMessage("USER_BLOCKED");
+                    return response;
+                }
+            }
+
+            // Plan gate: messaging requires Silver plan or above (MESSAGE feature)
+            UserSubscriptions senderSub = userSubscriptionsRepository
+                    .findTopByUserIdOrderByCreatedAtDesc(request.getSenderId());
+            if (senderSub == null || senderSub.getSubscriptionPlanId() == 1) {
+                response.setCode(403);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("PLAN_UPGRADE_REQUIRED");
+                return response;
+            }
+            Features messageFeature = featuresRepository.findByCode("MESSAGE");
+            if (messageFeature != null) {
+                PlanFeatures planFeature = planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(
+                        messageFeature.getId(), senderSub.getSubscriptionPlanId());
+                if (planFeature == null) {
+                    response.setCode(403);
+                    response.setStatus(ResponseStatus.FAILURE);
+                    response.setMessage("PLAN_UPGRADE_REQUIRED");
+                    return response;
+                }
+            }
+
             Conversation conversation = conversationRepository.findById(request.getConversationId())
                 .orElseThrow(() -> new RuntimeException("Conversation not found"));
 
@@ -76,6 +128,17 @@ public class ChatService {
                         receiverId,
                         "New Message",
                         senderName + " sent you a message. Tap to read it now!");
+
+                // ✅ Push message to recipient via WebSocket for real-time delivery
+                String wsMessage = String.format(
+                    "{\"type\":\"chat_message\",\"data\":{\"conversationId\":\"%d\",\"senderId\":\"%d\",\"message\":\"%s\",\"senderName\":\"%s\",\"timestamp\":\"%s\"}}",
+                    conversation.getId(),
+                    request.getSenderId(),
+                    request.getMessage().replace("\"", "\\\""),
+                    senderName.replace("\"", "\\\""),
+                    java.time.Instant.now().toString()
+                );
+                UserWebSocketHandler.sendMessageToUser(receiverId, wsMessage);
             }
 
             response.setCode(200);

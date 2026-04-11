@@ -15,4 +15,9 @@ public class MailboxUserDetail {
     private String profileImage;
     private Long interestId;
     private Long shortlistedId;
+
+    // Verification flags — surfaced as shield next to name on mailbox rows
+    private Boolean idVerified;
+    private Boolean educationVerified;
+    private Boolean incomeVerified;
 }

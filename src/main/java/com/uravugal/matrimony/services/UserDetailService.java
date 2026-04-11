@@ -1,6 +1,7 @@
 package com.uravugal.matrimony.services;
 
 import com.uravugal.matrimony.dtos.*;
+import com.uravugal.matrimony.enums.ActiveStatus;
 import com.uravugal.matrimony.enums.EmploymentType;
 import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.models.UserDetailEntity;
@@ -16,13 +17,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.uravugal.matrimony.utils.JsonMap;
 
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Base64.Decoder;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
-
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.commons.lang3.StringUtils;  // For StringUtils
+import java.util.AbstractMap;  // For AbstractMap
 
 @Service
 public class UserDetailService {
@@ -336,177 +341,198 @@ public ResultResponse updatePersonalInfo(PersonalInfoRequest request) {
         // }
     // }
 
-     public ResultResponse calculateProfileCompletion(String userId) {
-        ResultResponse response = new ResultResponse();
-        try {
-            Decoder decoder = Base64.getDecoder();
-            Long userIdLong = Long.parseLong(new String(decoder.decode(userId)));
-            UserEntity userEntity = userRepository.findById(userIdLong).get();
-            if (userEntity == null) {
-                throw new RuntimeException("User details not found");
-            }
+public ResultResponse calculateProfileCompletion(String userId) {
+    ResultResponse response = new ResultResponse();
+    try {
+        // Decode and validate user
+        Decoder decoder = Base64.getDecoder();
+        Long userIdLong = Long.parseLong(new String(decoder.decode(userId)));
+        UserEntity userEntity = userRepository.findById(userIdLong)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+        
+        // Define fields to check
+// Define fields to check
+List<String> requiredFields = Arrays.asList(
+    "horoscope", "profileImage", "height", "weight", "star",
+    "moonSign", "dosham", "maritalStatus", "motherLanguage", 
+    "familyType", "familyStatus", "numberOfSiblings"
+);
 
-            List<String> requiredFields = Arrays.asList(
-                "horoscope",
-                "mobile",
-                "profileImage",
-                "height",
-                "weight",
-                "physicalStatus",
-                "maritalStatus",
-                "motherLanguage",
-                "star",
-                "moonSign",
-                "dosham",
-                "familyType",
-                "familyStatus",
-                "numberOfSiblings"
-            );
+int totalFields = requiredFields.size();
+        AtomicInteger completedFields = new AtomicInteger(0);
+        List<String> missingFields = new ArrayList<>(requiredFields);
+        Map<String, Object> nextActions = new LinkedHashMap<>(); // To track potential next actions
 
-            int totalFields = requiredFields.size();
-            int completedFields = 0;
-            List<String> missingFields = new ArrayList<>(requiredFields); // Start with all fields as missing
 
-            // Check UserEntity fields
-            if (userEntity != null) {
-                if (userEntity.getMobile() != null && !userEntity.getMobile().isEmpty()) {
-                    completedFields++;
-                    missingFields.remove("mobile");
-                }
-                
-                if (userEntity.getProfileImage() != null && !userEntity.getProfileImage().isEmpty()) {
-                    completedFields++;
-                    missingFields.remove("profileImage");
-                }
-            }
-
-            // Fetch UserDetailEntity separately
-            UserDetailEntity userDetails = userDetailRepository.findByUserId(userIdLong);
-            if (userDetails == null) {
-                throw new RuntimeException("User details not found");
-            }
-
-            // Check UserDetailEntity fields
-            if (userDetails.getHoroscope() != null && !userDetails.getHoroscope().isEmpty()) {
-                completedFields++;
-                missingFields.remove("horoscope");
-            }
-
-            // Parse JSON fields
-            ObjectMapper objectMapper = new ObjectMapper();
-            JsonNode astroInfo = null;
-            JsonNode basicInfo = null;
-            JsonNode familyInfo = null;
-            
-            try {
-                astroInfo = objectMapper.readTree(userDetails.getAstronomicInfo());
-            } catch (Exception e) {
-                // Handle JSON parsing error
-                astroInfo = null;
-            }
-
-            try {
-                basicInfo = objectMapper.readTree(userDetails.getBasicInfo());
-            } catch (Exception e) {
-                // Handle JSON parsing error
-                basicInfo = null;
-            }
-
-            try {
-                familyInfo = objectMapper.readTree(userDetails.getFamilyInfo());
-            } catch (Exception e) {
-                // Handle JSON parsing error
-                familyInfo = null;
-            }
-
-            // Parse astronomicInfo
-            if (astroInfo != null) {
-                JsonNode starNode = astroInfo.get(0).get("star");
-                JsonNode moonSignNode = astroInfo.get(0).get("moon_sign");
-                JsonNode doshamNode = astroInfo.get(0).get("dosham");
-                
-                if (starNode != null && !starNode.isNull()) {
-                    completedFields++;
-                    missingFields.remove("star");
-                }
-                if (moonSignNode != null && !moonSignNode.isNull()) {
-                    completedFields++;
-                    missingFields.remove("moonSign");
-                }
-                if (doshamNode != null && !doshamNode.isNull()) {
-                    completedFields++;
-                    missingFields.remove("dosham");
-                }
-            }
-
-            // Parse basicInfo
-            if (basicInfo != null) {
-                // JsonNode heightNode = basicInfo.get("height");
-                // JsonNode weightNode = basicInfo.get("weight");
-
-                JsonNode physicalStatusNode = basicInfo.get("physical_status");
-                JsonNode maritalStatusNode = basicInfo.get("marital_status");
-                JsonNode motherLanguage = basicInfo.get("mother_language");
-                
-                if (motherLanguage != null && !motherLanguage.isNull()) {
-                    completedFields++;
-                    missingFields.remove("motherLanguage");
-                }
-
-                if (userDetails.getHeight() != null && !userDetails.getHeight().isEmpty()) {
-                    completedFields++;
-                    missingFields.remove("height");
-                }
-                if (userDetails.getWeight() != null && !userDetails.getWeight().isEmpty()) {
-                    completedFields++;
-                    missingFields.remove("weight");
-                }
-                if (physicalStatusNode != null && !physicalStatusNode.isNull()) {
-                    completedFields++;
-                    missingFields.remove("physicalStatus");
-                }
-                if (maritalStatusNode != null && !maritalStatusNode.isNull()) {
-                    completedFields++;
-                    missingFields.remove("maritalStatus");
-                }
-            }
-
-            // Parse familyInfo
-          
-            if (familyInfo != null) {
-                JsonNode familyTypeNode = familyInfo.get(0).get("familyType");
-                JsonNode familyStatusNode = familyInfo.get(0).get("familyStatus");
-                JsonNode numberOfSiblingsNode = familyInfo.get(0).get("numberOfSiblings");
-                
-           
-                if (familyTypeNode != null && !familyTypeNode.isNull()) {
-                    completedFields++;
-                    missingFields.remove("familyType");
-                }
-                if (familyStatusNode != null && !familyStatusNode.isNull()) {
-                    completedFields++;
-                    missingFields.remove("familyStatus");
-                }
-                if (numberOfSiblingsNode != null && !numberOfSiblingsNode.isNull()) {
-                    completedFields++;
-                    missingFields.remove("numberOfSiblings");
-                }
-            }
-
-            int percentage = (int) ((completedFields * 100.0) / totalFields);
-            ProfileCompletionResponse completionResponse = new ProfileCompletionResponse(percentage, totalFields, completedFields, missingFields);
-            response.setCode(200);
-            response.setStatus(ResponseStatus.SUCCESS);
-            response.setMessage("Profile completion calculated successfully");
-            response.setData(completionResponse);
-            return response;
-        } catch (Exception e) {
-            response.setCode(500);
-            response.setStatus(ResponseStatus.FAILURE);
-            response.setMessage("Error calculating profile completion: " + e.getMessage());
-            return response;
+        if (userEntity.getProfileImage() != null && !userEntity.getProfileImage().isEmpty()) {
+            completedFields.incrementAndGet();
+            missingFields.remove("profileImage");
+        } else {
+            nextActions.put("PROFILE_IMAGE", createAction("Add Profile Photo", "Get 5x more profile views", 20, "/profile/photo"));
         }
+
+        // Fetch UserDetailEntity
+        UserDetailEntity userDetails = userDetailRepository.findByUserId(userIdLong);
+        if (userDetails == null) {
+            throw new RuntimeException("User details not found");
+        }
+
+        // Check UserDetailEntity fields
+        if (userDetails.getHoroscope() != null && !userDetails.getHoroscope().isEmpty()) {
+            completedFields.incrementAndGet();
+            missingFields.remove("horoscope");
+        } else {
+            nextActions.put("HOROSCOPE", createAction("Add Horoscope", "Improves match accuracy", 15, "/(root)/(tabs)/profile"));
+        }
+
+        System.out.println("userDetails.getFamilyInfo()"+userDetails.getFamilyInfo());
+        // Parse JSON fields with null checks
+        ObjectMapper objectMapper = new ObjectMapper();
+        JsonNode astroInfo = parseJsonSafely(objectMapper, userDetails.getAstronomicInfo());
+        JsonNode basicInfo = parseJsonSafely(objectMapper, userDetails.getBasicInfo());
+        JsonNode familyInfo = parseJsonSafely(objectMapper, userDetails.getFamilyInfo());
+        System.out.println("familyInfo1"+familyInfo);
+
+        // Check basic info fields
+        if (basicInfo != null) {
+            checkField(basicInfo, "marital_status", "maritalStatus", missingFields, completedFields::incrementAndGet);
+            checkField(basicInfo, "mother_language", "motherLanguage", missingFields, completedFields::incrementAndGet);
+            
+            if (userDetails.getHeight() != null && !userDetails.getHeight().isEmpty()) {
+                completedFields.incrementAndGet();
+                missingFields.remove("height");
+            } else {
+                nextActions.put("HEIGHT", createAction("Add Height", "Help others find you", 10, "/(root)/(tabs)/profile"));
+            }
+            
+            if (userDetails.getWeight() != null && !userDetails.getWeight().isEmpty()) {
+                completedFields.incrementAndGet();
+                missingFields.remove("weight");
+            } else if (!nextActions.containsKey("HEIGHT")) {
+                nextActions.put("HEIGHT_WEIGHT", createAction("Add Height & Weight", "Complete your physical details", 10, "/(root)/(tabs)/profile"));
+            }
+        }
+
+        // Check astro info fields
+        if (astroInfo != null && astroInfo.size() > 0) {
+            JsonNode firstAstro = astroInfo.get(0);
+            checkField(firstAstro, "star", "star", missingFields, completedFields::incrementAndGet);
+            checkField(firstAstro, "moon_sign", "moonSign", missingFields, completedFields::incrementAndGet);
+            checkField(firstAstro, "dosham", "dosham", missingFields, completedFields::incrementAndGet);
+        }
+
+        // Check family info fields
+// Check family info fields
+if (familyInfo != null && familyInfo.isArray() && familyInfo.size() > 0) {
+    JsonNode firstFamily = familyInfo.get(0);  // Get the first element
+    System.out.println("firstFamily: " + firstFamily);
+    
+    // Use the exact field names from the JSON
+    checkField(firstFamily, "family_type", "familyType", missingFields, completedFields::incrementAndGet);
+    checkField(firstFamily, "family_status", "familyStatus", missingFields, completedFields::incrementAndGet);
+    checkField(firstFamily, "no_of_siblings", "numberOfSiblings", missingFields, completedFields::incrementAndGet);
+}
+
+        // Calculate completion percentage
+int percentage = (int) Math.round((completedFields.get() * 100.0) / totalFields);        
+        // Set completion status
+        String status = percentage >= 80 ? "STRONG" : 
+                       percentage >= 50 ? "GOOD" : "BASIC";
+        String label = percentage >= 80 ? "Strong Profile" : 
+                      percentage >= 50 ? "Good Profile" : "Basic Profile";
+
+        // Build response
+        Map<String, Object> responseData = new HashMap<>();
+        
+        // Completion info
+        responseData.put("completion", Map.of(
+            "percentage", percentage,
+            "status", status,
+            "label", label
+        ));
+        
+        // Next action - always show the next action with highest priority
+        Map.Entry<String, Object> nextAction = !nextActions.isEmpty() ? 
+            nextActions.entrySet().iterator().next() : 
+            createDefaultNextAction(missingFields);
+        responseData.put("nextAction", nextAction != null ? nextAction.getValue() : null);
+        
+        // Meta info
+        responseData.put("meta", Map.of(
+            "totalFields", totalFields,
+            "completedFields", completedFields.get(),
+            "missingFields", missingFields
+        ));
+
+        response.setCode(200);
+        response.setStatus(ResponseStatus.SUCCESS);
+        response.setMessage("Profile completion calculated successfully");
+        response.setData(responseData);
+        
+        return response;
+
+    } catch (Exception e) {
+        response.setCode(500);
+        response.setStatus(ResponseStatus.FAILURE);
+        response.setMessage("Error calculating profile completion: " + e.getMessage());
+        return response;
     }
+}
+
+private Map.Entry<String, Object> createDefaultNextAction(List<String> missingFields) {
+    if (missingFields.isEmpty()) {
+        return null;
+    }
+    String firstMissing = missingFields.get(0);
+    // Convert camelCase to Title Case with spaces and add "Add" prefix
+    String title = "Add " + StringUtils.capitalize(firstMissing.replaceAll("([A-Z])", " $1").toLowerCase());
+    return new AbstractMap.SimpleEntry<>(
+        firstMissing.toUpperCase(),
+        // createAction(title, "Complete your profile information", 5, "/profile/edit?field=" + firstMissing)
+        createAction(title, "Complete your profile information", 5, "/(root)/(tabs)/profile")
+
+        
+    );
+}
+
+// Helper method to create action objects
+private Map<String, Object> createAction(String title, String description, int boost, String route) {
+    Map<String, Object> action = new HashMap<>();
+    action.put("title", title);
+    action.put("description", description);
+    action.put("boostPercentage", boost);
+    action.put("route", route);
+    return action;
+}
+
+// Helper method to safely parse JSON
+private JsonNode parseJsonSafely(ObjectMapper mapper, String json) {
+    if (json == null || json.trim().isEmpty()) {
+        return null;
+    }
+    try {
+        return mapper.readTree(json);
+    } catch (Exception e) {
+        return null;
+    }
+}
+
+// Helper method to check and update field completion
+private void checkField(JsonNode node, String fieldName, String fieldKey, 
+                       List<String> missingFields, Runnable onComplete) {
+    if (node == null) {
+        return; // Skip if node is null
+    }
+    JsonNode fieldNode = node.get(fieldName);    System.out.println("node"+node);
+    if (fieldNode != null && !fieldNode.isNull() && !fieldNode.asText().isEmpty()) {
+        onComplete.run();
+        missingFields.remove(fieldKey);
+        System.out.println("missingFields"+missingFields);
+
+    }
+}
+
+
 
     @Transactional
     public ResultResponse updateAbout(Long userId, String about) {

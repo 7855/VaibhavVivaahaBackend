@@ -7,7 +7,9 @@ import com.uravugal.matrimony.enums.ApprovalStatus;
 
 @Data
 @Entity
-@Table(name = "interestRequest")
+@Table(name = "interestRequest", uniqueConstraints = {
+    @UniqueConstraint(columnNames = {"interestSend", "interestReceived"})
+})
 public class InterestRequest extends GenericEntity {
     
     @Id

@@ -32,6 +32,22 @@ public class SubscriptionPlanService {
         return response;
     }
 
+    public ResultResponse getAllPlans() {
+        ResultResponse response = new ResultResponse();
+        try {
+            List<SubscriptionPlan> plans = planRepository.findAll();
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage("All subscription plans fetched successfully");
+            response.setData(plans);
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Error fetching all subscription plans: " + e.getMessage());
+        }
+        return response;
+    }
+
     public ResultResponse getPopularPlans() {
         ResultResponse response = new ResultResponse();
         try {

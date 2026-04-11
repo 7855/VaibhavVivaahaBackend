@@ -25,42 +25,49 @@ public class ConversationService {
     @Autowired
     private ChatRepository chatRepository;
 
-    public ResultResponse getUserChatListWithRecentMessage(Long userId) {
-        ResultResponse response = new ResultResponse();
-        try {
-            List<Object[]> rawResults = conversationRepository.getUserChatList(userId);
+public ResultResponse getUserChatListWithRecentMessage(Long userId) {
+    ResultResponse response = new ResultResponse();
+    try {
+        List<Object[]> rawResults = conversationRepository.getUserChatList(userId);
+        System.out.println("rawResults "+rawResults);
 
-            List<ChatListResponse> chatList = rawResults.stream().map(row -> {
-                Long conversationId = ((Number) row[0]).longValue();
-                Long otherUserId = ((Number) row[1]).longValue();
-                
-                // Get unread message count for this conversation
-                Integer unreadCount = chatRepository.countUnreadMessages(conversationId, userId);
+        List<ChatListResponse> chatList = rawResults.stream().map(row -> {
+            Long conversationId = ((Number) row[0]).longValue();
+            Long otherUserId = ((Number) row[1]).longValue();
+            
+            // Get unread message count for this conversation
+            Integer unreadCount = chatRepository.countUnreadMessages(conversationId, userId);
 
-                return new ChatListResponse(
-                    conversationId,                                  // conversationId
-                    otherUserId,                                     // otherUserId
-                    (String) row[2],                                 // otherUserName
-                    (String) row[3],                                 // lastMessage
-                    row[4] != null ? ((Timestamp) row[4]).toLocalDateTime() : null, // lastMessageTime
-                    row[5] != null && ((Number) row[5]).intValue() == 1,           // isRead
-                    (String) row[6],                                 // status
-                    (String) row[7],                                 // profileImage
-                    unreadCount                                      // unreadMessageCount
-                );
-            }).collect(Collectors.toList());
+            return new ChatListResponse(
+                conversationId,                                  // conversationId
+                otherUserId,                                     // otherUserId
+                (String) row[2],                                 // otherUserName
+                (String) row[3],                                 // lastMessage
+                row[4] != null ? ((Timestamp) row[4]).toLocalDateTime() : null, // lastMessageTime
+                row[5] != null && (Boolean) row[5],             // isRead - direct boolean cast
+                (String) row[6],                                 // status
+                (String) row[7],                                 // profileImage
+                unreadCount,                                     // unreadMessageCount
+                row.length > 8 && row[8] != null && ((Number) row[8]).intValue() != 0,  // idVerified
+                row.length > 9 && row[9] != null && ((Number) row[9]).intValue() != 0,  // educationVerified
+                row.length > 10 && row[10] != null && ((Number) row[10]).intValue() != 0 // incomeVerified
+            );
+        }).collect(Collectors.toList());
 
-            response.setCode(200);
-            response.setStatus(ResponseStatus.SUCCESS);
-            response.setMessage("Chat list fetched successfully.");
-            response.setData(chatList);
-        } catch (Exception e) {
-            response.setCode(500);
-            response.setStatus(ResponseStatus.FAILURE);
-            response.setMessage("Error fetching chat list: " + e.getMessage());
-        }
-        return response;
+        System.out.println("chatList "+chatList);
+
+        response.setCode(200);
+        response.setStatus(ResponseStatus.SUCCESS);
+        response.setMessage("Chat list fetched successfully.");
+        response.setData(chatList);
+    } catch (Exception e) {
+        response.setCode(500);
+        response.setStatus(ResponseStatus.FAILURE);
+        response.setMessage("Error fetching chat list: " + e.getMessage());
+        e.printStackTrace(); // Add this for better error logging
     }
+    return response;
+}
 
     public ResultResponse inActiveConversationById(Long id) {
         ResultResponse response = new ResultResponse();

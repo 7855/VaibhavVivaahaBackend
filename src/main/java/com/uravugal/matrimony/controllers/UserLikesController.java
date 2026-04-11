@@ -4,6 +4,7 @@ import com.uravugal.matrimony.dtos.ResultResponse;
 import com.uravugal.matrimony.dtos.UserLikesRequest;
 import com.uravugal.matrimony.models.UserLikes;
 import com.uravugal.matrimony.services.UserLikesService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,7 +16,7 @@ public class UserLikesController {
     private UserLikesService userLikesService;
 
     @PostMapping("/createUserLike")
-    public ResultResponse createUserLike(@RequestBody UserLikesRequest userLike) {
+    public ResultResponse createUserLike(@Valid @RequestBody UserLikesRequest userLike) {
         return userLikesService.createUserLike(userLike);
     }
 

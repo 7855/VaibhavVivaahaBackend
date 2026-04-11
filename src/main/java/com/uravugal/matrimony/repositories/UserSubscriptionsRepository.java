@@ -24,4 +24,6 @@ public interface UserSubscriptionsRepository extends JpaRepository<UserSubscript
     List<UserSubscriptions> findByUserId(Long userId);
 
     UserSubscriptions findTopByUserIdOrderByCreatedAtDesc(Long userId);
+
+    List<UserSubscriptions> findByStatus(SubscriptionStatus status);
 }

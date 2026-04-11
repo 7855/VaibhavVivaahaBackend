@@ -1,4 +1,5 @@
 package com.uravugal.matrimony.services;
+import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
 import com.amazonaws.regions.Regions;
@@ -22,9 +23,16 @@ public class S3Config {
     @Bean
     public AmazonS3 s3Client(){
         BasicAWSCredentials awsCredentials = new BasicAWSCredentials(awsId, awsKey);
+        ClientConfiguration clientConfig = new ClientConfiguration();
+        clientConfig.setConnectionTimeout(60000);
+        clientConfig.setSocketTimeout(60000);
+        clientConfig.setMaxConnections(100);
+        clientConfig.setMaxErrorRetry(3);
+
         AmazonS3 amazonS3Client = AmazonS3ClientBuilder.standard()
                 .withRegion(Regions.fromName(region))
                 .withCredentials(new AWSStaticCredentialsProvider(awsCredentials))
+                .withClientConfiguration(clientConfig)
                 .build();
         return amazonS3Client;
     }

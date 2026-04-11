@@ -1,5 +1,7 @@
 package com.uravugal.matrimony.controllers;
 
+import java.util.Base64;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,10 +19,12 @@ public class ConversationController {
     @Autowired
     private ConversationService conversationService;
 
-    @GetMapping("/chatlist/{userId}")
-    public ResultResponse getUserChatListWithRecentMessage(@PathVariable Long userId) {
+    @GetMapping("/chatlist/{encodedUserId}")
+    public ResultResponse getUserChatListWithRecentMessage(@PathVariable String encodedUserId) {
         ResultResponse resp = new ResultResponse();
         try {
+            String decodedId = new String(Base64.getDecoder().decode(encodedUserId));
+            Long userId = Long.parseLong(decodedId);
             resp = conversationService.getUserChatListWithRecentMessage(userId);
         } catch (Exception e) {
             resp.setCode(500);

@@ -33,4 +33,25 @@ public interface InterestRequestRepository extends JpaRepository<InterestRequest
     Optional<ApprovalStatus> findAcceptStatusBySenderAndReceiver(
      @Param("senderId") Long senderId, 
      @Param("receiverId") Long receiverId);
+
+     @Query("""
+SELECT i 
+FROM InterestRequest i
+WHERE 
+   (i.interestSend = :viewer AND i.interestReceived = :profile)
+OR (i.interestSend = :profile AND i.interestReceived = :viewer)
+""")
+Optional<InterestRequest> findBetweenUsers(
+    @Param("viewer") Long viewer,
+    @Param("profile") Long profile
+);
+
+    long countByInterestSend(Long interestSend);
+
+    @Query("SELECT COUNT(i) FROM InterestRequest i " +
+           "WHERE (i.interestSend = :userId OR i.interestReceived = :userId) " +
+           "AND i.acceptStatus = :status")
+    long countMatchesByUserIdAndStatus(@Param("userId") Long userId, @Param("status") ApprovalStatus status);
+
+
 }

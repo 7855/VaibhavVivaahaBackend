@@ -9,17 +9,21 @@ import lombok.EqualsAndHashCode;
 @Entity
 @Table(name = "planFeatures")
 public class PlanFeatures extends GenericEntity {
-    
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-    
-    @Column(name = "planId", nullable = false)
-    private Long planId; // Subscription Plan Id from subscriptionPlan table
-    
+
+    @Column(name = "subscriptionPlanId", nullable = false)
+    private Long subscriptionPlanId; // Subscription Plan Id from subscriptionPlan table
+
     @Column(name = "featureId", nullable = false)
     private Long featureId; // Feature Id from features table
-    
+
     @Column(name = "limit_value", columnDefinition = "VARCHAR(50) DEFAULT NULL")
-    private String limitValue; // like 50 request can send User. Incrasing count after each request in userFeatureUsage table.
+    private String limitValue; // like 50 request can send User. Incrasing count after each request in
+                               // userFeatureUsage table.
+
+    @Column(name = "limit_period", columnDefinition = "VARCHAR(50) DEFAULT NULL")
+    private String limitPeriod;
 }

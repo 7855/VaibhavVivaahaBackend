@@ -36,4 +36,10 @@ public class SubscriptionPlan extends GenericEntity{
     
     @Column(name = "is_popular", columnDefinition = "BOOLEAN DEFAULT false")
     private Boolean isPopular = false;
+
+    @Column(name = "tagline", length = 255)
+    private String tagline;
+
+    @Column(name = "plan_description", columnDefinition = "TEXT")
+    private String planDescription;
 }

@@ -1,8 +1,8 @@
 package com.uravugal.matrimony.services;
 
-import com.amazonaws.AmazonServiceException;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.model.CannedAccessControlList;
+import com.amazonaws.services.s3.model.ObjectMetadata;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 import com.uravugal.matrimony.enums.S3BucketMap;
 
@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
+import java.io.FileInputStream;
 
 @Component
 public class S3FileUploadService {
@@ -25,24 +26,42 @@ public class S3FileUploadService {
     private static final Logger logger = LoggerFactory.getLogger(S3FileUploadService.class);
 
     private String uploadFile(File file, String folderPath, String bucketName, boolean enablePublicReadAccess) {
+
         try {
             logger.info("Bucket name: " + bucketName);
+
             String filePath = file.getName();
             if (folderPath != null) {
                 filePath = folderPath + "/" + file.getName();
             }
-            System.out.println("----->" + folderPath + bucketName);
-            PutObjectRequest putObjectRequest = new PutObjectRequest(bucketName, filePath, file);
-            // if (enablePublicReadAccess) {
-            //     putObjectRequest.withCannedAcl(CannedAccessControlList.PublicRead);
-            // }
 
-            this.amazonS3.putObject(putObjectRequest);
-            String s3FileUrl = String.valueOf(amazonS3.getUrl(bucketName, filePath));
+            System.out.println("Uploading filePath => " + filePath);
+            System.out.println("File size => " + file.length());
+
+            ObjectMetadata metadata = new ObjectMetadata();
+            metadata.setContentLength(file.length());
+
+            FileInputStream inputStream = new FileInputStream(file);
+
+            PutObjectRequest request = new PutObjectRequest(
+                    bucketName,
+                    filePath,
+                    inputStream,
+                    metadata);
+
+            if (enablePublicReadAccess) {
+                request.withCannedAcl(CannedAccessControlList.PublicRead);
+            }
+
+            amazonS3.putObject(request);
+
+            String s3FileUrl = amazonS3.getUrl(bucketName, filePath).toString();
+            inputStream.close();
             return s3FileUrl;
-        } catch (AmazonServiceException ex) {
-            logger.error("error [" + ex.getMessage() + "] occurred while uploading [" + file.getName() + "] ");
-            throw ex;
+
+        } catch (Exception ex) {
+            logger.error("S3 Upload Error: " + ex.getMessage(), ex);
+            throw new RuntimeException(ex);
         }
     }
 

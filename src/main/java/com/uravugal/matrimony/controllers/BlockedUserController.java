@@ -6,6 +6,7 @@ import com.uravugal.matrimony.dtos.ResultResponse;
 import com.uravugal.matrimony.dtos.BlockUserRequest;
 import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.services.BlockedUserService;
+import jakarta.validation.Valid;
 import java.util.Base64;
 
 @RestController
@@ -14,6 +15,19 @@ public class BlockedUserController {
     
     @Autowired
     private BlockedUserService blockedUserService;
+
+    @GetMapping("/getMyBlocked/{encodedUserId}")
+    public ResultResponse getMyBlocked(@PathVariable String encodedUserId) {
+        ResultResponse response = new ResultResponse();
+        try {
+            response = blockedUserService.getMyBlocked(encodedUserId);
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setMessage("Something Went Wrong. " + e.getMessage());
+            response.setStatus(ResponseStatus.FAILURE);
+        }
+        return response;
+    }
 
     @GetMapping("/getAllBlockedUsers")
     public ResultResponse getAllBlockedUsers() {
@@ -60,7 +74,7 @@ public class BlockedUserController {
     }
 
     @PostMapping("/blockUser")
-    public ResultResponse blockUser(@RequestBody BlockUserRequest blockRequest) {
+    public ResultResponse blockUser(@Valid @RequestBody BlockUserRequest blockRequest) {
         ResultResponse response = new ResultResponse();
         try {
             String decodedId = new String(Base64.getDecoder().decode(blockRequest.getBlockedByUserId()));

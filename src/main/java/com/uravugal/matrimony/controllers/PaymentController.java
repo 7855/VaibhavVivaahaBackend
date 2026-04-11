@@ -2,8 +2,8 @@ package com.uravugal.matrimony.controllers;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -19,7 +19,7 @@ public class PaymentController {
     @Autowired
     private PaymentService paymentService;
 
-    @GetMapping("/createOrder/{amount}")
+    @PostMapping("/createOrder/{amount}")
     public ResultResponse createOrder(
             @PathVariable Long amount) {
         ResultResponse response = new ResultResponse();

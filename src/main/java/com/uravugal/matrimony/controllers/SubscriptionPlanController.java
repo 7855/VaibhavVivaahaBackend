@@ -26,6 +26,19 @@ public class SubscriptionPlanController {
         return response;
     }
 
+    @GetMapping("/getAllPlans")
+    public ResultResponse getAllPlansIncludingInactive() {
+        ResultResponse response = new ResultResponse();
+        try {
+            response = planService.getAllPlans();
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setMessage("Failed to fetch all subscription plans: " + e.getMessage());
+            response.setStatus(ResponseStatus.FAILURE);
+        }
+        return response;
+    }
+
     @GetMapping("/getPopularPlans")
     public ResultResponse getPopularPlans() {
         ResultResponse response = new ResultResponse();

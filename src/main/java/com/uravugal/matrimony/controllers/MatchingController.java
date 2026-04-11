@@ -26,8 +26,7 @@ public class MatchingController {
         } catch (Exception e) {
             e.printStackTrace();
             result.setCode(500);
-            result.setMessage(e.getMessage());
-            result.setMessage("Something went wrong");
+            result.setMessage("Something went wrong: " + e.getMessage());
             return result;
         }
         return result;

@@ -9,4 +9,5 @@ import org.springframework.stereotype.Repository;
 public interface ViewedProfileRepository extends JpaRepository<ViewedProfile, Long> {
     boolean existsByUserIdValueAndViewedBy(Long userIdValue, Long viewedBy);
     List<ViewedProfile> findByUserIdValue(Long userIdValue);
+    long countByUserIdValue(Long userIdValue);
 }

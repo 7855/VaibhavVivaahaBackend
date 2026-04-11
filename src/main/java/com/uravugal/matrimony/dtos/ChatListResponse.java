@@ -16,4 +16,9 @@ public class ChatListResponse {
     private String status;
     private String profileImage;
     private Integer unreadMessageCount;
+
+    // Verification flags — shield beside other user's name in chat list rows
+    private Boolean idVerified;
+    private Boolean educationVerified;
+    private Boolean incomeVerified;
 }

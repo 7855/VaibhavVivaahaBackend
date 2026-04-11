@@ -2,9 +2,11 @@ package com.uravugal.matrimony.controllers;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
@@ -36,7 +38,7 @@ public class GalleryController {
         return response;
     }
 
-    @GetMapping("/changeImageActiveStatus/{galleryId}")
+    @PutMapping("/changeImageActiveStatus/{galleryId}")
     public ResultResponse changeImageActiveStatus(@PathVariable Long galleryId) {
         ResultResponse response = new ResultResponse();
         try {
@@ -74,4 +76,17 @@ public class GalleryController {
 	    }
 	    return result;
 	}
+
+    @DeleteMapping("/deleteHoroscope/{encodedUserId}")
+    public ResultResponse deleteHoroscope(@PathVariable String encodedUserId) {
+        ResultResponse response = new ResultResponse();
+        try {
+            response = galleryService.deleteHoroscope(encodedUserId);
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setMessage("Something Went Wrong. " + e.getMessage());
+            response.setStatus(ResponseStatus.FAILURE);
+        }
+        return response;
+    }
 }
