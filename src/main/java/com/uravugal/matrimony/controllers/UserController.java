@@ -63,7 +63,7 @@ public class UserController {
         ResultResponse resp = new ResultResponse();
         try {
             resp = userService.sendOtp(mobileNumber);
-        } catch (Exception e) { 
+        } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Something Went Wrong. " + e.getMessage());
             resp.setStatus(ResponseStatus.FAILURE);
@@ -134,7 +134,7 @@ public class UserController {
         try {
             String decodedIdStr = new String(Base64.getDecoder().decode(userId));
             Long decodedId = Long.parseLong(decodedIdStr);
-            System.out.println("=======================================>"+decodedId);
+            System.out.println("=======================================>" + decodedId);
 
             Long decodedRequesterId = null;
             if (requesterId != null && !requesterId.isBlank()) {
@@ -151,12 +151,13 @@ public class UserController {
         return resp;
     }
 
-        @GetMapping("/getProfileDetailWithIntractionStatus/{viewerId}/{profileUserId}")
-    public ResultResponse getProfileDetailWithIntractionStatus( @PathVariable String viewerId, @PathVariable Long profileUserId) {
+    @GetMapping("/getProfileDetailWithIntractionStatus/{viewerId}/{profileUserId}")
+    public ResultResponse getProfileDetailWithIntractionStatus(@PathVariable String viewerId,
+            @PathVariable Long profileUserId) {
         ResultResponse resp = new ResultResponse();
         try {
             // Decode the Base64 encoded ID
-            System.out.println("=======================================>"+profileUserId);
+            System.out.println("=======================================>" + profileUserId);
             resp = userService.getProfileDetailWithIntractionStatus(viewerId, profileUserId);
         } catch (Exception e) {
             resp.setCode(500);
@@ -165,8 +166,6 @@ public class UserController {
         }
         return resp;
     }
-
-
 
     @GetMapping("/getUserDetailByCasteId/{casteId}/{gender}")
     public ResultResponse getUserDetailByCaste(@PathVariable Integer casteId, @PathVariable Gender gender) {
@@ -213,13 +212,12 @@ public class UserController {
         return resp;
     }
 
-
     @GetMapping("/getTop30NewUsers/{casteId}/{gender}")
     public ResultResponse getTop30NewUsers(@PathVariable Integer casteId, @PathVariable Gender gender) {
         ResultResponse resp = new ResultResponse();
         try {
             gender = gender == Gender.M ? Gender.F : Gender.M;
-            resp = userService.getTop30NewUsers(casteId,gender);    
+            resp = userService.getTop30NewUsers(casteId, gender);
         } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Something Went Wrong. " + e.getMessage());
@@ -311,7 +309,6 @@ public class UserController {
         return resp;
     }
 
-
     @GetMapping("/followUser/{followerId}/{followingId}")
     public ResultResponse followUser(@PathVariable Long followerId, @PathVariable Long followingId) {
         ResultResponse resp = new ResultResponse();
@@ -377,21 +374,23 @@ public class UserController {
         return resp;
     }
 
-    @PostMapping(path ="/updateProfileImage", consumes={MediaType.MULTIPART_FORM_DATA_VALUE})
-	public ResultResponse updateProfileImage(@RequestPart("userId") String userId,@RequestPart("file") @Nullable MultipartFile file) {
-	    ResultResponse result = new ResultResponse();
-	    try {
-	        result = userService.updateProfileImage(userId, file);
-	    } catch (Exception e) {
-	        result.setCode(500);
-	        result.setMessage(e.getMessage());
-	        result.setStatus(ResponseStatus.FAILURE);
-	    }
-	    return result;
-	}
+    @PostMapping(path = "/updateProfileImage", consumes = { MediaType.MULTIPART_FORM_DATA_VALUE })
+    public ResultResponse updateProfileImage(@RequestPart("userId") String userId,
+            @RequestPart("file") @Nullable MultipartFile file) {
+        ResultResponse result = new ResultResponse();
+        try {
+            result = userService.updateProfileImage(userId, file);
+        } catch (Exception e) {
+            result.setCode(500);
+            result.setMessage(e.getMessage());
+            result.setStatus(ResponseStatus.FAILURE);
+        }
+        return result;
+    }
 
     @GetMapping("/getProfileDetailByMemberId/{memberId}/{gender}/{casteId}")
-    public ResultResponse getProfileDetailByMemberId(@PathVariable String memberId, @PathVariable Gender gender, @PathVariable Integer casteId) {
+    public ResultResponse getProfileDetailByMemberId(@PathVariable String memberId, @PathVariable Gender gender,
+            @PathVariable Integer casteId) {
         ResultResponse resp = new ResultResponse();
         try {
             resp = userService.getProfileDetailByMemberId(memberId, gender, casteId);
@@ -403,30 +402,78 @@ public class UserController {
         return resp;
     }
 
-    // @PostMapping(path ="/updateProfileImage", consumes={MediaType.MULTIPART_FORM_DATA_VALUE})
-	// public ResultResponse updateProfileImage(@RequestPart("userId") String userId,@RequestPart("file") @Nullable MultipartFile file) {
-	//     ResultResponse result = new ResultResponse();
-	//     try {
-	//         result = userService.updateProfileImage(userId, file);
-	//     } catch (Exception e) {
-	//         result.setCode(500);
-	//         result.setMessage(e.getMessage());
-	//         result.setStatus(ResponseStatus.FAILURE);
-	//     }
-	//     return result;
-	// }
+    /**
+     * Interest-based matches — returns profiles filtered by caste + opposite gender
+     * + isActive
+     * that share at least one hobby with the requesting user. Pure SQL, no
+     * in-memory loop.
+     */
+    /**
+     * Interest-based matches — same simple pattern as getDailyShuffledUsersByCaste.
+     * Filters by caste + opposite gender + isActive, then keeps only profiles
+     * whose hobbies overlap with the requesting user's hobbies.
+     */
+    /**
+     * Reveal contact info (mobile + email) for a specific profile.
+     * Costs 1 contact-reveal from the viewer's VIEW_PERSONAL_INFO quota.
+     */
+    @GetMapping("/revealContact/{viewerEncodedId}/{profileUserId}")
+    public ResultResponse revealContact(
+            @PathVariable String viewerEncodedId,
+            @PathVariable Long profileUserId) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            resp = userService.revealContact(viewerEncodedId, profileUserId);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Error: " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
 
-    @PostMapping(path ="/createStarterProfile")
-	public ResultResponse createStarterProfile(@RequestBody HashMap<String, Object> request) {
-	    ResultResponse result = new ResultResponse();
-	    try {
-	        result = userService.createStarterProfile(request);
-	    } catch (Exception e) {
-	        result.setCode(500);
-	        result.setMessage(e.getMessage());
-	        result.setStatus(ResponseStatus.FAILURE);
-	    }
-	    return result;
-	}
-    
+    @GetMapping("/getInterestMatches/{casteId}/{gender}/{encodedUserId}")
+    public ResultResponse getInterestMatches(
+            @PathVariable Integer casteId,
+            @PathVariable Gender gender,
+            @PathVariable String encodedUserId) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            resp = userService.getInterestMatches(casteId, gender, encodedUserId);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Error: " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
+    // @PostMapping(path ="/updateProfileImage",
+    // consumes={MediaType.MULTIPART_FORM_DATA_VALUE})
+    // public ResultResponse updateProfileImage(@RequestPart("userId") String
+    // userId,@RequestPart("file") @Nullable MultipartFile file) {
+    // ResultResponse result = new ResultResponse();
+    // try {
+    // result = userService.updateProfileImage(userId, file);
+    // } catch (Exception e) {
+    // result.setCode(500);
+    // result.setMessage(e.getMessage());
+    // result.setStatus(ResponseStatus.FAILURE);
+    // }
+    // return result;
+    // }
+
+    @PostMapping(path = "/createStarterProfile")
+    public ResultResponse createStarterProfile(@RequestBody HashMap<String, Object> request) {
+        ResultResponse result = new ResultResponse();
+        try {
+            result = userService.createStarterProfile(request);
+        } catch (Exception e) {
+            result.setCode(500);
+            result.setMessage(e.getMessage());
+            result.setStatus(ResponseStatus.FAILURE);
+        }
+        return result;
+    }
+
 }

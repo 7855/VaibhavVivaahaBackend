@@ -102,6 +102,40 @@ public class UserDetailController {
         return resp;
     }
 
+    // ── Interest / Hobbies endpoints ──
+
+    /** Get a user's hobbies as a JSON array of codes. */
+    @GetMapping("/hobbies/{encodedUserId}")
+    public ResultResponse getHobbies(@PathVariable String encodedUserId) {
+        return userDetailService.getHobbies(encodedUserId);
+    }
+
+    /** Update a user's hobbies. Body: { "hobbies": ["food","music","cricket"] } */
+    @PostMapping("/hobbies/{encodedUserId}")
+    public ResultResponse updateHobbies(
+            @PathVariable String encodedUserId,
+            @RequestBody java.util.Map<String, Object> body) {
+        @SuppressWarnings("unchecked")
+        java.util.List<String> hobbies = (java.util.List<String>) body.get("hobbies");
+        return userDetailService.updateHobbies(encodedUserId, hobbies);
+    }
+
+    /** Get common interests between two users. */
+    @GetMapping("/commonInterests/{viewerEncodedId}/{profileUserId}")
+    public ResultResponse getCommonInterests(
+            @PathVariable String viewerEncodedId,
+            @PathVariable Long profileUserId) {
+        return userDetailService.getCommonInterests(viewerEncodedId, profileUserId);
+    }
+
+    /** Get profiles ranked by shared interests for the home page shelf. */
+    @GetMapping("/interestMatches/{encodedUserId}")
+    public ResultResponse getInterestBasedMatches(
+            @PathVariable String encodedUserId,
+            @RequestParam(defaultValue = "10") int limit) {
+        return userDetailService.getInterestBasedMatches(encodedUserId, limit);
+    }
+
     @GetMapping("/getProfileCompletion/{userIdStr}")
     public ResultResponse getProfileCompletion(@PathVariable String userIdStr) {
         ResultResponse response = new ResultResponse();

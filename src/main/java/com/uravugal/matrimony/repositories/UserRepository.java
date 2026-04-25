@@ -12,6 +12,7 @@ import org.springframework.stereotype.Repository;
 
 import com.uravugal.matrimony.dtos.FilteredUserPlanView;
 import com.uravugal.matrimony.enums.ActiveStatus;
+import com.uravugal.matrimony.enums.IsUser;
 import com.uravugal.matrimony.enums.EmploymentType;
 import com.uravugal.matrimony.enums.Gender;
 import com.uravugal.matrimony.models.UserEntity;
@@ -19,17 +20,20 @@ import com.uravugal.matrimony.models.UserEntity;
 @Repository
 public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
-    List<UserEntity> findAllByCasteIdAndIsActive(Integer caste, ActiveStatus active);
+    List<UserEntity> findAllByCasteIdAndIsActiveAndIsUserNot(Integer caste, ActiveStatus active, IsUser excludeRole);
 
-    List<UserEntity> findAllByCasteIdAndLocationAndIsActive(Integer casteId, String location, ActiveStatus active);
+    @Query("SELECT u FROM UserEntity u WHERE u.casteId = :casteId AND LOWER(u.location) LIKE LOWER(CONCAT('%', :location, '%')) AND u.isActive = :active AND u.isUser != com.uravugal.matrimony.enums.IsUser.ADM")
+    List<UserEntity> findAllByCasteIdAndLocationAndIsActive(@Param("casteId") Integer casteId, @Param("location") String location, @Param("active") ActiveStatus active);
 
-    List<UserEntity> findTop30ByCasteIdOrderByCreatedAtDesc(Integer casteId);
+    List<UserEntity> findTop30ByCasteIdAndIsUserNotOrderByCreatedAtDesc(Integer casteId, IsUser excludeRole);
 
-    @Query(value = "SELECT u FROM UserEntity u WHERE u.casteId = :casteId AND u.isActive = :active ORDER BY RAND()", nativeQuery = false)
+    @Query(value = "SELECT u FROM UserEntity u WHERE u.casteId = :casteId AND u.isActive = :active AND u.isUser != com.uravugal.matrimony.enums.IsUser.ADM ORDER BY RAND()", nativeQuery = false)
     List<UserEntity> findAllByCasteIdAndIsActiveOrderByRandom(@Param("casteId") Integer caste,
             @Param("active") ActiveStatus active);
 
     List<UserEntity> findAllByIsActive(ActiveStatus active);
+
+    List<UserEntity> findAllByIsActiveAndIsUserNot(ActiveStatus active, IsUser excludeRole);
 
     @Query(value = "SELECT u FROM UserEntity u WHERE u.isActive = :active ORDER BY RAND()", nativeQuery = false)
     List<UserEntity> findAllByIsActiveOrderByRandom(@Param("active") ActiveStatus active);
@@ -54,16 +58,20 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                 ud.annualIncome,
                 sp.id AS subscriptionPlanId,
                 sp.title AS subscriptionTitle,
-                COALESCE(u.id_verified, FALSE) AS idVerified,
-                COALESCE(u.education_verified, FALSE) AS educationVerified,
-                COALESCE(u.income_verified, FALSE) AS incomeVerified
+                CASE WHEN u.id_verified = 1 THEN 1 ELSE 0 END AS idVerified,
+                CASE WHEN u.education_verified = 1 THEN 1 ELSE 0 END AS educationVerified,
+                CASE WHEN u.income_verified = 1 THEN 1 ELSE 0 END AS incomeVerified,
+                CASE WHEN pb.id IS NOT NULL THEN 1 ELSE 0 END AS hasActiveBoost
             FROM users u
             JOIN user_details ud ON u.userId = ud.userId
             LEFT JOIN user_subscriptions us
                    ON u.userId = us.userId AND us.status = 'ACTIVE'
             LEFT JOIN subscription_plans sp
                    ON us.subscriptionPlanId = sp.id
+            LEFT JOIN profile_boosts pb
+                   ON u.userId = pb.userId AND pb.status = 'ACTIVE' AND pb.expiresAt > NOW()
             WHERE u.isActive = 'Y'
+              AND u.isUser != 'ADM'
               AND (:gender IS NULL OR u.gender = :gender)
               AND (:casteId IS NULL OR u.casteId = :casteId)
               AND (:minAge IS NULL OR CAST(u.age AS UNSIGNED) >= :minAge)
@@ -100,10 +108,13 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                   OR (:profilesWithHoroscope = 'Y' AND ud.horoscope IS NOT NULL)
               )
             ORDER BY
+               CASE WHEN pb.id IS NOT NULL THEN 1 ELSE 0 END DESC,
+               CASE WHEN sp.id IN (5, 6) THEN 1 ELSE 0 END DESC,
                CASE sp.id
-                    WHEN 9 THEN 4
-                    WHEN 7 THEN 3
-                    WHEN 4 THEN 2
+                    WHEN 6 THEN 5
+                    WHEN 5 THEN 4
+                    WHEN 4 THEN 3
+                    WHEN 3 THEN 2
                     WHEN 2 THEN 1
                     ELSE 0
                END DESC,
@@ -141,18 +152,16 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
     Optional<UserEntity> findByUserId(Long id);
 
-    List<UserEntity> findAllByCasteIdAndGenderAndIsActive(Integer casteId, Gender gender, ActiveStatus y);
+    List<UserEntity> findAllByCasteIdAndGenderAndIsActiveAndIsUserNot(Integer casteId, Gender gender, ActiveStatus y, IsUser excludeRole);
 
-    List<UserEntity> findTop30ByCasteIdAndGenderAndIsActiveOrderByCreatedAtDesc(Integer casteId, Gender gender,
-            ActiveStatus y);
+    List<UserEntity> findTop30ByCasteIdAndGenderAndIsActiveAndIsUserNotOrderByCreatedAtDesc(Integer casteId, Gender gender,
+            ActiveStatus y, IsUser excludeRole);
 
-    List<UserEntity> findAllByCasteIdAndGenderAndLocationAndIsActive(Integer casteId, Gender gender,
-            String location,
-            ActiveStatus y);
+    @Query("SELECT u FROM UserEntity u WHERE u.casteId = :casteId AND u.gender = :gender AND LOWER(TRIM(u.location)) LIKE LOWER(CONCAT('%', TRIM(:location), '%')) AND u.isActive = :active AND u.isUser != com.uravugal.matrimony.enums.IsUser.ADM")
+    List<UserEntity> findAllByCasteIdAndGenderAndLocationAndIsActive(@Param("casteId") Integer casteId, @Param("gender") Gender gender, @Param("location") String location, @Param("active") ActiveStatus active);
 
-    List<UserEntity> findAllByCasteIdAndGenderAndLocationIgnoreCaseAndIsActive(Integer casteId, Gender gender,
-            String location,
-            ActiveStatus y);
+    List<UserEntity> findAllByCasteIdAndGenderAndIsActiveAndIsUserNotAndLocationIgnoreCase(Integer casteId, Gender gender,
+            ActiveStatus y, IsUser excludeRole, String location);
 
     @Query(value = "SELECT memberId FROM users ORDER BY memberId DESC LIMIT 1", nativeQuery = true)
     String findLastMemberId();
@@ -171,16 +180,20 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                 ud.annualIncome,
                 sp.id AS subscriptionPlanId,
                 sp.title AS subscriptionTitle,
-                COALESCE(u.id_verified, FALSE) AS idVerified,
-                COALESCE(u.education_verified, FALSE) AS educationVerified,
-                COALESCE(u.income_verified, FALSE) AS incomeVerified
+                CASE WHEN u.id_verified = 1 THEN 1 ELSE 0 END AS idVerified,
+                CASE WHEN u.education_verified = 1 THEN 1 ELSE 0 END AS educationVerified,
+                CASE WHEN u.income_verified = 1 THEN 1 ELSE 0 END AS incomeVerified,
+                CASE WHEN pb.id IS NOT NULL THEN 1 ELSE 0 END AS hasActiveBoost
             FROM users u
             JOIN user_details ud ON u.userId = ud.userId
             LEFT JOIN user_subscriptions us
                    ON u.userId = us.userId AND us.status = 'ACTIVE'
             LEFT JOIN subscription_plans sp
                    ON us.subscriptionPlanId = sp.id
+            LEFT JOIN profile_boosts pb
+                   ON u.userId = pb.userId AND pb.status = 'ACTIVE' AND pb.expiresAt > NOW()
             WHERE u.isActive = :active
+              AND u.isUser != 'ADM'
               AND (:gender IS NULL OR u.gender = :gender)
               AND (:casteId IS NULL OR u.casteId = :casteId)
               AND (:minAge IS NULL OR CAST(u.age AS UNSIGNED) >= :minAge)
@@ -192,10 +205,13 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                     OR (:profileImageStatus = 'Y' AND u.profileImage IS NOT NULL)
                   )
             ORDER BY
+               CASE WHEN pb.id IS NOT NULL THEN 1 ELSE 0 END DESC,
+               CASE WHEN sp.id IN (5, 6) THEN 1 ELSE 0 END DESC,
                CASE sp.id
-                    WHEN 9 THEN 4
-                    WHEN 7 THEN 3
-                    WHEN 4 THEN 2
+                    WHEN 6 THEN 5
+                    WHEN 5 THEN 4
+                    WHEN 4 THEN 3
+                    WHEN 3 THEN 2
                     WHEN 2 THEN 1
                     ELSE 0
                END DESC,

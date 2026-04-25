@@ -43,4 +43,8 @@ public class PaymentRequestEntity {
 
     @Column(name = "verified_by")
     private Long verifiedBy;
+
+    /** Optional note — e.g. "BOOST_PURCHASE" for add-on boost payments. */
+    @Column(name = "note", length = 200)
+    private String note;
 }

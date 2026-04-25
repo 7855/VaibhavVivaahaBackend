@@ -272,8 +272,13 @@ public class UserService {
     public ResultResponse getUserById(String encodedId) {
         ResultResponse response = new ResultResponse();
         try {
-            String decodedId = new String(Base64.getDecoder().decode(encodedId));
-            Long id = Long.parseLong(decodedId);
+            Long id;
+            try {
+                id = Long.parseLong(new String(Base64.getDecoder().decode(encodedId)));
+            } catch (Exception e) {
+                // Already a raw numeric ID
+                id = Long.parseLong(encodedId);
+            }
 
             Optional<UserEntity> user = userRepository.findById(id);
             if (user.isPresent()) {
@@ -360,8 +365,8 @@ public class UserService {
         ResultResponse response = new ResultResponse();
         try {
             gender = gender == Gender.M ? Gender.F : Gender.M;
-            List<UserEntity> user = userRepository.findAllByCasteIdAndGenderAndIsActive(casteId, gender,
-                    ActiveStatus.Y);
+            List<UserEntity> user = userRepository.findAllByCasteIdAndGenderAndIsActiveAndIsUserNot(casteId, gender,
+                    ActiveStatus.Y, IsUser.ADM);
             if (user.size() > 0) {
                 response.setCode(200);
                 response.setStatus(ResponseStatus.SUCCESS);
@@ -409,8 +414,8 @@ public class UserService {
     public ResultResponse getDailyShuffledUsersByCaste(Integer casteId, Gender gender) {
         ResultResponse response = new ResultResponse();
         try {
-            List<UserEntity> users = userRepository.findAllByCasteIdAndGenderAndIsActive(casteId, gender,
-                    ActiveStatus.Y);
+            List<UserEntity> users = userRepository.findAllByCasteIdAndGenderAndIsActiveAndIsUserNot(casteId, gender,
+                    ActiveStatus.Y, IsUser.ADM);
 
             if (!users.isEmpty()) {
                 // Shuffle deterministically based on date
@@ -439,8 +444,8 @@ public class UserService {
     public ResultResponse getTop30NewUsers(Integer casteId, Gender gender) {
         ResultResponse response = new ResultResponse();
         try {
-            List<UserEntity> users = userRepository.findTop30ByCasteIdAndGenderAndIsActiveOrderByCreatedAtDesc(casteId,
-                    gender, ActiveStatus.Y);
+            List<UserEntity> users = userRepository.findTop30ByCasteIdAndGenderAndIsActiveAndIsUserNotOrderByCreatedAtDesc(casteId,
+                    gender, ActiveStatus.Y, IsUser.ADM);
             if (!users.isEmpty()) {
                 response.setCode(200);
                 response.setStatus(ResponseStatus.SUCCESS);
@@ -601,12 +606,7 @@ public class UserService {
             UserSubscriptions userSubscriptions =
                     userSubscriptionRepository.findTopByUserIdOrderByCreatedAtDesc(filterRequest.getUserId());
 
-            if (userSubscriptions == null) {
-                response.setCode(404);
-                response.setStatus(ResponseStatus.FAILURE);
-                response.setMessage("No subscriptions found for the specified user.");
-                return response;
-            }
+            // Free users (no subscription row) can still use basic search
 
             // 🔹 Normalize all values
             normalizeFilter(filterRequest);
@@ -618,7 +618,7 @@ public class UserService {
 
             // 🔹 PREMIUM USER — check ADV_SEARCH feature in plan (Classic+)
             boolean hasAdvSearch = false;
-            if (userSubscriptions.getSubscriptionPlanId() != 1L) {
+            if (userSubscriptions != null && userSubscriptions.getSubscriptionPlanId() != null && userSubscriptions.getSubscriptionPlanId() != 1L) {
                 Features advFeature = featuresRepository.findByCode("ADV_SEARCH");
                 if (advFeature != null) {
                     hasAdvSearch = planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(
@@ -688,6 +688,10 @@ public class UserService {
                 r.setSubscriptionPlanId(u.getSubscriptionPlanId());
                 r.setSubscriptionTitle(u.getSubscriptionTitle());
                 r.setSubscriptionTag(mapPlanTag(u.getSubscriptionTitle()));
+                r.setIdVerified(u.getIdVerified() != null && u.getIdVerified() == 1);
+                r.setEducationVerified(u.getEducationVerified() != null && u.getEducationVerified() == 1);
+                r.setIncomeVerified(u.getIncomeVerified() != null && u.getIncomeVerified() == 1);
+                r.setHasActiveBoost(u.getHasActiveBoost() != null && u.getHasActiveBoost() == 1);
 
                 filteredUsers.add(r);
             }
@@ -825,6 +829,12 @@ private Integer parseIntSafe(String val) {
     @Autowired
     private com.uravugal.matrimony.repositories.BannedIdentifierRepository bannedIdentifierRepository;
 
+    @Autowired
+    private com.uravugal.matrimony.repositories.ViewedProfileRepository viewedProfileRepository;
+
+    @Autowired
+    private com.uravugal.matrimony.repositories.ContactRevealRepository contactRevealRepository;
+
     public ResultResponse createUser(UserProfileRequest request) {
         ResultResponse response = new ResultResponse();
         try {
@@ -938,8 +948,24 @@ private Integer parseIntSafe(String val) {
 
             userDetailRepository.save(userDetail);
 
+            // Auto-assign Free plan (plan ID 1) subscription row
+            UserSubscriptions freeSub = new UserSubscriptions();
+            freeSub.setUserId(userEntity.getUserId());
+            freeSub.setSubscriptionPlanId(1L);
+            freeSub.setStatus(SubscriptionStatus.ACTIVE);
+            freeSub.setStartDate(java.time.LocalDate.now());
+            freeSub.setAutoRenew('N');
+            userSubscriptionRepository.save(freeSub);
+
+            // Return encoded userId so the frontend can save hobbies
+            String base64UserId = Base64.getEncoder().encodeToString(
+                    String.valueOf(userEntity.getUserId()).getBytes());
+            Map<String, Object> resultData = new HashMap<>();
+            resultData.put("userId", base64UserId);
+
             response.setCode(200);
             response.setMessage("User profile created successfully");
+            response.setData(resultData);
             response.setStatus(ResponseStatus.SUCCESS);
             return response;
 
@@ -995,16 +1021,9 @@ private Integer parseIntSafe(String val) {
                     File tempFile = File.createTempFile("temp-", fileName);
                     file.transferTo(tempFile);
 
-                    // Upload to S3
+                    // Upload to S3 — use the returned URL directly (don't reconstruct)
                     String fileUrl = s3UploadService.uploadGalleryImage(tempFile, AWS_BASE_PATH + "user_" + userId);
                     System.out.println("File URL: ------>" + fileUrl);
-
-                    // Extract the key part from the URL if needed
-                    int startIndex = fileUrl.indexOf("https://");
-                    if (startIndex != -1) {
-                        String domain = fileUrl.substring(0, fileUrl.indexOf("/", 8)); // Get domain part
-                        fileUrl = domain + "/" + AWS_BASE_PATH + "user_" + userId + "/" + fileName;
-                    }
 
                     // Update user's profile image URL
                     user.setProfileImage(fileUrl);
@@ -1316,6 +1335,262 @@ private Integer parseIntSafe(String val) {
         return response;
     }
 
+    /**
+     * Reveal contact info (mobile + email) for a profile.
+     * Deducts 1 from VIEW_PERSONAL_INFO quota for plans with numeric limits (Classic = 40).
+     * Returns the contact info if allowed.
+     */
+    public ResultResponse revealContact(String viewerEncodedId, Long profileUserId) {
+        ResultResponse response = new ResultResponse();
+        try {
+            Long parsedId;
+            try {
+                parsedId = Long.parseLong(new String(Base64.getDecoder().decode(viewerEncodedId)));
+            } catch (Exception e) {
+                parsedId = Long.parseLong(viewerEncodedId);
+            }
+            final Long viewerId = parsedId;
+
+            // Can't reveal own contact
+            if (viewerId.equals(profileUserId)) {
+                response.setCode(400);
+                response.setMessage("Cannot reveal own contact");
+                response.setStatus(ResponseStatus.FAILURE);
+                return response;
+            }
+
+            // Get viewer's subscription
+            UserSubscriptions viewerSub = userSubscriptionRepository.findTopByUserIdOrderByCreatedAtDesc(viewerId);
+            if (viewerSub == null || viewerSub.getSubscriptionPlanId() == 1L) {
+                response.setCode(403);
+                response.setMessage("PLAN_UPGRADE_REQUIRED");
+                response.setStatus(ResponseStatus.FAILURE);
+                return response;
+            }
+
+            Long planId = viewerSub.getSubscriptionPlanId();
+            Features personalInfo = featuresRepository.findByCode("VIEW_PERSONAL_INFO");
+            if (personalInfo == null) {
+                response.setCode(500);
+                response.setMessage("Feature not configured");
+                response.setStatus(ResponseStatus.FAILURE);
+                return response;
+            }
+
+            PlanFeatures pf = planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(
+                    personalInfo.getId(), planId);
+            if (pf == null) {
+                response.setCode(403);
+                response.setMessage("PLAN_UPGRADE_REQUIRED");
+                response.setStatus(ResponseStatus.FAILURE);
+                return response;
+            }
+
+            String limitVal = pf.getLimitValue();
+            boolean isUnlimited = "enabled".equalsIgnoreCase(limitVal) || "unlimited".equalsIgnoreCase(limitVal);
+
+            if (!isUnlimited) {
+                // Numeric limit — track usage
+                int limit = Integer.parseInt(limitVal);
+                com.uravugal.matrimony.models.UserFeatureUsage usage = userFeatureUsageRepository
+                        .findByUserIdAndSubscriptionIdAndFeatureId(viewerId, viewerSub.getId(), personalInfo.getId())
+                        .orElseGet(() -> {
+                            com.uravugal.matrimony.models.UserFeatureUsage u = new com.uravugal.matrimony.models.UserFeatureUsage();
+                            u.setUserId(viewerId);
+                            u.setSubscriptionId(viewerSub.getId());
+                            u.setFeatureId(personalInfo.getId());
+                            u.setUsedCount(0);
+                            return u;
+                        });
+
+                if (usage.getUsedCount() >= limit) {
+                    response.setCode(403);
+                    response.setMessage("CONTACT_VIEW_LIMIT_EXCEEDED");
+                    response.setData(java.util.Map.of("limit", limit, "used", usage.getUsedCount()));
+                    response.setStatus(ResponseStatus.FAILURE);
+                    return response;
+                }
+
+                // Only increment if first time revealing this profile's contact
+                boolean alreadyRevealed = contactRevealRepository.existsByViewerIdAndRevealedUserId(viewerId, profileUserId);
+                if (!alreadyRevealed) {
+                    usage.setUsedCount(usage.getUsedCount() + 1);
+                    userFeatureUsageRepository.save(usage);
+
+                    // Record the reveal
+                    com.uravugal.matrimony.models.ContactReveal reveal = new com.uravugal.matrimony.models.ContactReveal();
+                    reveal.setViewerId(viewerId);
+                    reveal.setRevealedUserId(profileUserId);
+                    contactRevealRepository.save(reveal);
+                }
+            }
+
+            // Fetch the profile user's contact info
+            Optional<UserEntity> profileOpt = userRepository.findById(profileUserId);
+            if (!profileOpt.isPresent()) {
+                response.setCode(404);
+                response.setMessage("Profile not found");
+                response.setStatus(ResponseStatus.FAILURE);
+                return response;
+            }
+
+            UserEntity profileUser = profileOpt.get();
+            Map<String, Object> contactData = new HashMap<>();
+            contactData.put("mobile", profileUser.getMobile());
+            contactData.put("email", profileUser.getEmail());
+            contactData.put("userId", profileUserId);
+            contactData.put("unlimited", isUnlimited);
+            if (!isUnlimited) {
+                int limit = Integer.parseInt(pf.getLimitValue());
+                com.uravugal.matrimony.models.UserFeatureUsage currentUsage = userFeatureUsageRepository
+                        .findByUserIdAndSubscriptionIdAndFeatureId(viewerId, viewerSub.getId(), personalInfo.getId())
+                        .orElse(null);
+                int used = currentUsage != null ? currentUsage.getUsedCount() : 0;
+                contactData.put("remaining", Math.max(0, limit - used));
+                contactData.put("total", limit);
+            }
+
+            response.setCode(200);
+            response.setMessage("Contact revealed successfully");
+            response.setData(contactData);
+            response.setStatus(ResponseStatus.SUCCESS);
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setMessage("Error: " + e.getMessage());
+            response.setStatus(ResponseStatus.FAILURE);
+        }
+        return response;
+    }
+
+    /**
+     * Interest-based matches — same pattern as getDailyShuffledUsersByCaste.
+     * Returns List<UserEntity> filtered by caste + opposite gender + isActive + shared hobbies.
+     */
+    public ResultResponse getInterestMatches(Integer casteId, Gender gender, String encodedUserId) {
+        ResultResponse response = new ResultResponse();
+        try {
+            // Decode viewer's userId to load their hobbies
+            Long viewerId = Long.parseLong(new String(java.util.Base64.getDecoder().decode(encodedUserId)));
+            UserDetailEntity viewerUd = userDetailRepository.findByUserId(viewerId);
+            java.util.List<String> viewerHobbies = new java.util.ArrayList<>();
+            if (viewerUd != null && viewerUd.getHobbies() != null && !viewerUd.getHobbies().isBlank()) {
+                try {
+                    viewerHobbies = new com.fasterxml.jackson.databind.ObjectMapper()
+                            .readValue(viewerUd.getHobbies(), new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>() {});
+                } catch (Exception ignored) {}
+            }
+
+            if (viewerHobbies.isEmpty()) {
+                response.setCode(200);
+                response.setStatus(ResponseStatus.SUCCESS);
+                response.setMessage("No hobbies set — add interests first");
+                response.setData(java.util.Collections.emptyList());
+                return response;
+            }
+
+            // Fetch all active users of opposite gender + same caste (same as daily shuffle)
+            List<UserEntity> allUsers = userRepository.findAllByCasteIdAndGenderAndIsActiveAndIsUserNot(
+                    casteId, gender, ActiveStatus.Y, IsUser.ADM);
+
+            // Filter: keep only profiles whose hobbies overlap with viewer's hobbies
+            final java.util.Set<String> viewerHobbySet = new java.util.HashSet<>(viewerHobbies);
+            java.util.List<UserEntity> matched = new java.util.ArrayList<>();
+            for (UserEntity u : allUsers) {
+                if (u.getUserId().equals(viewerId)) continue;
+                UserDetailEntity ud = userDetailRepository.findByUserId(u.getUserId());
+                if (ud == null || ud.getHobbies() == null || ud.getHobbies().isBlank()) continue;
+                try {
+                    java.util.List<String> theirHobbies = new com.fasterxml.jackson.databind.ObjectMapper()
+                            .readValue(ud.getHobbies(), new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>() {});
+                    boolean hasOverlap = theirHobbies.stream().anyMatch(viewerHobbySet::contains);
+                    if (hasOverlap) matched.add(u);
+                } catch (Exception ignored) {}
+            }
+
+            // Shuffle for variety
+            long seed = java.time.LocalDate.now().toEpochDay() + viewerId;
+            java.util.Collections.shuffle(matched, new java.util.Random(seed));
+            matched = matched.subList(0, Math.min(matched.size(), 30));
+
+            if (!matched.isEmpty()) {
+                response.setCode(200);
+                response.setStatus(ResponseStatus.SUCCESS);
+                response.setMessage("Interest matches fetched successfully.");
+                response.setData(matched);
+            } else {
+                response.setCode(200);
+                response.setStatus(ResponseStatus.SUCCESS);
+                response.setMessage("No matching profiles found with shared interests.");
+                response.setData(java.util.Collections.emptyList());
+            }
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Error: " + e.getMessage());
+        }
+        return response;
+    }
+
+    /**
+     * Interest-based matches — SQL-driven (legacy, kept for /user-details endpoint).
+     */
+    public ResultResponse getInterestMatchesSQL(String encodedUserId) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            Long userId = Long.parseLong(new String(java.util.Base64.getDecoder().decode(encodedUserId)));
+            UserEntity viewer = userRepository.findById(userId).orElse(null);
+            if (viewer == null || viewer.getCasteId() == null || viewer.getGender() == null) {
+                resp.setCode(404);
+                resp.setStatus(ResponseStatus.FAILURE);
+                resp.setMessage("User not found or incomplete profile");
+                return resp;
+            }
+
+            // Load viewer's hobbies
+            com.uravugal.matrimony.models.UserDetailEntity viewerUd =
+                    userDetailRepository.findByUserId(userId);
+            String hobbiesJson = viewerUd != null ? viewerUd.getHobbies() : null;
+            java.util.List<String> hobbies = new java.util.ArrayList<>();
+            if (hobbiesJson != null && !hobbiesJson.isBlank()) {
+                try {
+                    hobbies = new com.fasterxml.jackson.databind.ObjectMapper()
+                            .readValue(hobbiesJson, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>() {});
+                } catch (Exception ignored) {}
+            }
+            if (hobbies.isEmpty()) {
+                resp.setCode(200);
+                resp.setStatus(ResponseStatus.SUCCESS);
+                resp.setMessage("No hobbies set");
+                resp.setData(java.util.Collections.emptyList());
+                return resp;
+            }
+
+            // Pad hobbies to 15 slots (the query expects h0..h14 params)
+            String[] h = new String[15];
+            for (int i = 0; i < 15; i++) {
+                h[i] = i < hobbies.size() ? hobbies.get(i) : null;
+            }
+
+            Gender oppositeGender = viewer.getGender() == Gender.M ? Gender.F : Gender.M;
+
+            java.util.List<com.uravugal.matrimony.dtos.FilteredUserPlanView> results =
+                    userRepository.findInterestMatches(
+                            oppositeGender.name(), viewer.getCasteId(), userId,
+                            h[0], h[1], h[2], h[3], h[4], h[5], h[6],
+                            h[7], h[8], h[9], h[10], h[11], h[12], h[13], h[14]);
+
+            resp.setCode(200);
+            resp.setStatus(ResponseStatus.SUCCESS);
+            resp.setMessage("Interest matches fetched");
+            resp.setData(results);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setStatus(ResponseStatus.FAILURE);
+            resp.setMessage("Error: " + e.getMessage());
+        }
+        return resp;
+    }
+
     public ResultResponse getProfileDetailByMemberId(String memberId, Gender gender, Integer casteId) {
         ResultResponse response = new ResultResponse();
         try {
@@ -1412,12 +1687,7 @@ private Integer parseIntSafe(String val) {
                         if (pvPlan != null) {
                             int limit = 0;
                             try { limit = Integer.parseInt(pvPlan.getLimitValue()); } catch (Exception ignored) {}
-                            if (limit <= 0) {
-                                response.setCode(403);
-                                response.setStatus(ResponseStatus.FAILURE);
-                                response.setMessage("PROFILE_VIEW_BLURRED");
-                                return response;
-                            }
+                            if (limit > 0) {
                             com.uravugal.matrimony.models.UserFeatureUsage usage =
                                     userFeatureUsageRepository.findByUserIdAndSubscriptionIdAndFeatureId(
                                             viewerUserId, vSub.getId(), pvFeature.getId())
@@ -1436,8 +1706,13 @@ private Integer parseIntSafe(String val) {
                                 response.setMessage("PROFILE_VIEW_LIMIT_EXCEEDED");
                                 return response;
                             }
-                            usage.setUsedCount(usage.getUsedCount() + 1);
-                            userFeatureUsageRepository.save(usage);
+                            // Only increment if this is a FIRST-TIME view of this profile
+                            boolean alreadyViewed = viewedProfileRepository.existsByUserIdValueAndViewedBy(profileUserId, viewerUserId);
+                            if (!alreadyViewed) {
+                                usage.setUsedCount(usage.getUsedCount() + 1);
+                                userFeatureUsageRepository.save(usage);
+                            }
+                            } // end if (limit > 0)
                         }
                     }
                 }
@@ -1494,8 +1769,20 @@ private Integer parseIntSafe(String val) {
                 // VIEW_PERSONAL_INFO → mobile + email
                 Features personalInfo = featuresRepository.findByCode("VIEW_PERSONAL_INFO");
                 if (personalInfo != null) {
-                    hasContactAccess = planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(
-                            personalInfo.getId(), viewerPlanId) != null;
+                    PlanFeatures personalInfoPf = planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(
+                            personalInfo.getId(), viewerPlanId);
+                    if (personalInfoPf != null) {
+                        String val = personalInfoPf.getLimitValue();
+                        // "enabled" or "unlimited" = instant access (Silver+)
+                        // numeric value (e.g. "40") = requires explicit contact reveal (Classic)
+                        if ("enabled".equalsIgnoreCase(val) || "unlimited".equalsIgnoreCase(val)) {
+                            hasContactAccess = true;
+                        } else {
+                            // Numeric limit — check if already revealed this profile's contact
+                            boolean alreadyRevealed = contactRevealRepository.existsByViewerIdAndRevealedUserId(viewerUserId, profileUserId);
+                            hasContactAccess = alreadyRevealed;
+                        }
+                    }
                 }
                 // HOROSCOPE_VIEW → jathagam / horoscope details
                 Features horoscope = featuresRepository.findByCode("HOROSCOPE_VIEW");
@@ -1515,14 +1802,32 @@ private Integer parseIntSafe(String val) {
         if (!hasContactAccess) {
             profileUser.setMobile(null);
             profileUser.setEmail(null);
-        } else if (isSecureConnect && profileUser.getMobile() != null) {
-            // SecureConnect: show last 4 digits only, prefix with "•"
-            String m = profileUser.getMobile();
-            profileUser.setMobile("•••• •••• " + m.substring(Math.max(0, m.length() - 4)));
+        } else if (hasContactAccess && profileUser.getMobile() != null && !isSelf) {
+            // Check if interest is accepted between viewer and profile user
+            boolean interestAccepted = false;
+            if (interestOpt.isPresent()) {
+                interestAccepted = interestOpt.get().getAcceptStatus() == com.uravugal.matrimony.enums.ApprovalStatus.APPROVED;
+            }
+
+            if (interestAccepted) {
+                // Interest accepted — show full mobile number
+                // (keep as-is, no masking)
+            } else {
+                // Interest NOT accepted — mask first 6 digits, show last 4
+                String m = profileUser.getMobile();
+                if (m.length() >= 4) {
+                    profileUser.setMobile("•••••• " + m.substring(m.length() - 4));
+                }
+                profileUser.setEmail(null);
+            }
         }
 
-        // Mask horoscope on the linked UserDetailEntity if no access
-        if (!hasHoroscopeAccess) {
+        // Mask horoscope — even if plan has access, require interest accepted
+        boolean interestAcceptedForHoroscope = false;
+        if (interestOpt.isPresent()) {
+            interestAcceptedForHoroscope = interestOpt.get().getAcceptStatus() == com.uravugal.matrimony.enums.ApprovalStatus.APPROVED;
+        }
+        if (!hasHoroscopeAccess || (!isSelf && !interestAcceptedForHoroscope)) {
             try {
                 com.uravugal.matrimony.models.UserDetailEntity ud =
                         userDetailRepository.findByUserId(profileUserId);

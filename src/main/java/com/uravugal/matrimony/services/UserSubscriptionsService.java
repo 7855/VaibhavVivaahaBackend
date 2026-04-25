@@ -180,6 +180,8 @@ public class UserSubscriptionsService {
                     entitlements.put(key, "unlimited");
                 } else if ("FULL".equalsIgnoreCase(val)) {
                     entitlements.put(key, "full");
+                } else if ("BASIC".equalsIgnoreCase(val)) {
+                    entitlements.put(key, "basic");
                 } else if ("LIMITED".equalsIgnoreCase(val)) {
                     entitlements.put(key, "limited");
                 } else if (val.matches("\\d+")) {

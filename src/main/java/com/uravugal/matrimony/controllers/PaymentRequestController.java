@@ -25,21 +25,17 @@ public class PaymentRequestController {
             @RequestPart("planId") String planId,
             @RequestPart("amount") String amount,
             @RequestPart("utrNumber") String utrNumber,
-            @RequestPart("file") @Nullable MultipartFile file) {
+            @RequestPart("file") @Nullable MultipartFile file,
+            @RequestPart(value = "note", required = false) String note) {
 
         ResultResponse response = new ResultResponse();
         try {
-            System.out.println("userId==>" + userId);
-            System.out.println("planId==>" + planId);
-            System.out.println("amount==>" + amount);
-            System.out.println("utrNumber==>" + utrNumber);
-
             String decodedId = new String(Base64.getDecoder().decode(userId));
             Long parsedUserId = Long.parseLong(decodedId);
             Long parsedPlanId = Long.parseLong(planId);
             BigDecimal parsedAmount = new BigDecimal(amount);
             response = paymentRequestService.createPaymentRequest(parsedUserId, parsedPlanId, parsedAmount, utrNumber,
-                    file);
+                    file, note);
         } catch (Exception e) {
             response.setCode(500);
             response.setMessage("Error creating payment request: " + e.getMessage());

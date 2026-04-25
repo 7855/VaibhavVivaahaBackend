@@ -353,6 +353,49 @@ public class PushNotificationService {
         return response;
     }
 
+    /**
+     * Send push notification bypassing plan gate — for system notifications
+     * (payment approved, account status changes, etc.)
+     */
+    public ResultResponse sendPushNotificationToUserDirect(Long userId, String title, String body) {
+        ResultResponse response = new ResultResponse();
+        try {
+            if (userId == null || userId <= 0 || title == null || body == null) {
+                response.setCode(400);
+                response.setMessage("Invalid parameters");
+                response.setStatus(ResponseStatus.FAILURE);
+                return response;
+            }
+            List<UserDeviceInformation> deviceInfoList = pushNotificationRepository.findAllByUserId(userId);
+            if (!deviceInfoList.isEmpty()) {
+                List<String> successfulTokens = new ArrayList<>();
+                List<String> failedTokens = new ArrayList<>();
+                for (UserDeviceInformation deviceInfo : deviceInfoList) {
+                    String pushToken = deviceInfo.getFcmToken();
+                    if (pushToken != null) {
+                        if (isExpoPushToken(pushToken)) {
+                            sendExpoPushNotification(pushToken, title.trim(), body.trim(), successfulTokens, failedTokens);
+                        } else {
+                            sendFcmPushNotification(pushToken, title, body, successfulTokens, failedTokens);
+                        }
+                    }
+                }
+                response.setCode(200);
+                response.setStatus(ResponseStatus.SUCCESS);
+                response.setMessage("Push sent to " + successfulTokens.size() + " devices");
+            } else {
+                response.setCode(404);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("No devices found for user " + userId);
+            }
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Push error: " + e.getMessage());
+        }
+        return response;
+    }
+
     public ResultResponse deleteUserDeviceInfo(Map<String, String> request) {
         ResultResponse response = new ResultResponse();
         try {

@@ -17,6 +17,7 @@ import com.uravugal.matrimony.repositories.UserLikesRepository;
 import com.uravugal.matrimony.repositories.UserRepository;
 import com.uravugal.matrimony.repositories.InterestRequestRepository;
 import com.uravugal.matrimony.repositories.ViewedProfileRepository;
+import com.uravugal.matrimony.repositories.ShortlistedProfileRepository;
 import com.uravugal.matrimony.enums.ApprovalStatus;
 
 import java.time.LocalDateTime;
@@ -40,19 +41,22 @@ public class UserConnectionService {
     private final UserLikesRepository userLikesRepository;
     private final InterestRequestRepository interestRequestRepository;
     private final ViewedProfileRepository viewedProfileRepository;
+    private final ShortlistedProfileRepository shortlistedProfileRepository;
 
     public UserConnectionService(UserConnectionRepository userConnectionRepository,
             UserRepository userRepository,
             UserDetailRepository userDetailRepository,
             UserLikesRepository userLikesRepository,
             InterestRequestRepository interestRequestRepository,
-            ViewedProfileRepository viewedProfileRepository) {
+            ViewedProfileRepository viewedProfileRepository,
+            ShortlistedProfileRepository shortlistedProfileRepository) {
         this.userConnectionRepository = userConnectionRepository;
         this.userRepository = userRepository;
         this.userDetailRepository = userDetailRepository;
         this.userLikesRepository = userLikesRepository;
         this.interestRequestRepository = interestRequestRepository;
         this.viewedProfileRepository = viewedProfileRepository;
+        this.shortlistedProfileRepository = shortlistedProfileRepository;
     }
 
     public ResultResponse getConnectionCount(String encodedUserId) {
@@ -330,10 +334,14 @@ public class UserConnectionService {
                 // Get the user's like count
                 Long likeCount = userLikesRepository.countByLikedToAndIsActive(userId, ActiveStatus.Y);
 
+                // Count how many users shortlisted this user
+                Long shortlistedByCount = shortlistedProfileRepository.countByShortlistedUserIdAndIsActive(userId, ActiveStatus.Y);
+
                 connectionCounts.put("Proposals", interestSentCount);
                 connectionCounts.put("Matches", yourConnectionCount);
                 connectionCounts.put("Admirers", viewsCount);
                 connectionCounts.put("Hearts", likeCount);
+                connectionCounts.put("Shortlisted", shortlistedByCount);
                 result.setCode(200);
                 result.setStatus(ResponseStatus.SUCCESS);
                 result.setMessage("User connection counts fetched successfully");

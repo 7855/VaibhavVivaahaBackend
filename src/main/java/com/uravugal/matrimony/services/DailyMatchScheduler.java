@@ -66,6 +66,9 @@ public class DailyMatchScheduler {
     @Autowired
     private NotificationRepository notificationRepository;
 
+    @Autowired
+    private com.uravugal.matrimony.repositories.UserDetailRepository userDetailRepository;
+
     /** Plan IDs eligible for Daily Match Alerts: Classic(3), Silver(4), Gold(5), Platinum(6). */
     private static final List<Long> ELIGIBLE_PLAN_IDS = Arrays.asList(3L, 4L, 5L, 6L);
 
@@ -146,10 +149,38 @@ public class DailyMatchScheduler {
                         ? picks.get(0).getFirstName().trim()
                         : "Someone special";
 
+                // Compute shared interests for a more personal push notification
                 String title = "Good morning! \u2600\uFE0F";
-                String body = (take == 1)
-                        ? topName + " might be the one — view their profile now"
-                        : "We found " + take + " new matches for you today — " + topName + " and more";
+                String body;
+                try {
+                    com.uravugal.matrimony.models.UserDetailEntity viewerDetail =
+                            userDetailRepository.findByUserId(user.getUserId());
+                    com.uravugal.matrimony.models.UserDetailEntity pickDetail =
+                            userDetailRepository.findByUserId(picks.get(0).getUserId());
+                    List<String> viewerHobbies = parseHobbiesJson(
+                            viewerDetail != null ? viewerDetail.getHobbies() : null);
+                    List<String> pickHobbies = parseHobbiesJson(
+                            pickDetail != null ? pickDetail.getHobbies() : null);
+                    List<String> common = new java.util.ArrayList<>(viewerHobbies);
+                    common.retainAll(pickHobbies);
+
+                    if (!common.isEmpty()) {
+                        String interestList = common.stream().limit(3)
+                                .collect(java.util.stream.Collectors.joining(", "));
+                        body = topName + " shares " + common.size()
+                                + " interests with you \u2014 " + interestList + " \uD83C\uDFAF";
+                    } else {
+                        body = (take == 1)
+                                ? topName + " might be the one \u2014 view their profile now"
+                                : "We found " + take + " new matches for you today \u2014 "
+                                  + topName + " and more";
+                    }
+                } catch (Exception hobbyErr) {
+                    body = (take == 1)
+                            ? topName + " might be the one \u2014 view their profile now"
+                            : "We found " + take + " new matches for you today \u2014 "
+                              + topName + " and more";
+                }
 
                 // 1. Push (already gated on NOTIFICATION_ALERT inside PushNotificationService)
                 ResultResponse pushResp = pushNotificationService
@@ -193,5 +224,15 @@ public class DailyMatchScheduler {
         summary.put("ranAt", LocalDateTime.now().toString());
         System.out.println("\uD83D\uDCEC DailyMatchScheduler: " + summary);
         return summary;
+    }
+
+    private List<String> parseHobbiesJson(String json) {
+        if (json == null || json.isBlank()) return Collections.emptyList();
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readValue(json, new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
+        } catch (Exception e) {
+            return Collections.emptyList();
+        }
     }
 }

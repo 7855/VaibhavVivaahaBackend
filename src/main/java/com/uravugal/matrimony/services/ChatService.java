@@ -59,21 +59,26 @@ public class ChatService {
         ResultResponse response = new ResultResponse();
         try {
             // Block gate: if either side has blocked the other, reject
-            if (request.getSenderId() != null && request.getReceiverId() != null) {
-                com.uravugal.matrimony.models.BlockedUser block = blockedUserRepository
-                        .findByUsersEitherDirection(request.getSenderId(), request.getReceiverId());
-                if (block != null) {
-                    response.setCode(403);
-                    response.setStatus(ResponseStatus.FAILURE);
-                    response.setMessage("USER_BLOCKED");
-                    return response;
+            if (request.getSenderId() != null && request.getConversationId() != null) {
+                Conversation convo = conversationRepository.findById(request.getConversationId()).orElse(null);
+                if (convo != null) {
+                    Long otherUserId = convo.getUserOne().equals(request.getSenderId()) ? convo.getUserTwo() : convo.getUserOne();
+                    com.uravugal.matrimony.models.BlockedUser block = blockedUserRepository
+                            .findByUsersEitherDirection(request.getSenderId(), otherUserId);
+                    if (block != null) {
+                        response.setCode(403);
+                        response.setStatus(ResponseStatus.FAILURE);
+                        response.setMessage("USER_BLOCKED");
+                        return response;
+                    }
                 }
             }
 
-            // Plan gate: messaging requires Silver plan or above (MESSAGE feature)
+            // Plan gate: check MESSAGE feature
             UserSubscriptions senderSub = userSubscriptionsRepository
                     .findTopByUserIdOrderByCreatedAtDesc(request.getSenderId());
             if (senderSub == null || senderSub.getSubscriptionPlanId() == 1) {
+                // Free plan — no chat
                 response.setCode(403);
                 response.setStatus(ResponseStatus.FAILURE);
                 response.setMessage("PLAN_UPGRADE_REQUIRED");
@@ -89,6 +94,35 @@ public class ChatService {
                     response.setMessage("PLAN_UPGRADE_REQUIRED");
                     return response;
                 }
+
+                // Conversation limit for plans with numeric limit (e.g. Starter = 5)
+                String limitVal = planFeature.getLimitValue();
+                if (limitVal != null && limitVal.matches("\\d+")) {
+                    int maxConversations = Integer.parseInt(limitVal);
+
+                    // Check if user already sent a message in THIS conversation
+                    Long existingInThisConvo = chatRepository.countMessagesByConversationAndSender(
+                            request.getConversationId(), request.getSenderId());
+
+                    if (existingInThisConvo == 0) {
+                        // First message in a NEW conversation — check if limit reached
+                        Long activeConversations = chatRepository.countDistinctConversationsBySenderId(
+                                request.getSenderId());
+
+                        if (activeConversations >= maxConversations) {
+                            response.setCode(403);
+                            response.setStatus(ResponseStatus.FAILURE);
+                            response.setMessage("CHAT_LIMIT_REACHED");
+                            response.setData(java.util.Map.of(
+                                "limit", maxConversations,
+                                "used", activeConversations
+                            ));
+                            return response;
+                        }
+                    }
+                    // If existingInThisConvo > 0, user already chatting here — allow (no new count)
+                }
+                // "enabled" / "unlimited" values = no limit, pass through
             }
 
             Conversation conversation = conversationRepository.findById(request.getConversationId())

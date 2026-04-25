@@ -38,6 +38,9 @@ public class UserDetailService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private com.uravugal.matrimony.repositories.KeyValueRepository keyValueRepository;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private String nullToEmpty(String value) {
@@ -341,6 +344,175 @@ public ResultResponse updatePersonalInfo(PersonalInfoRequest request) {
         // }
     // }
 
+// ── Interest / Hobbies methods ──
+
+    /** Lazily loaded from keyValues table (key=interestTags). Falls back to hardcoded if not seeded. */
+    private java.util.Set<String> getAllowedHobbyCodes() {
+        try {
+            java.util.Optional<com.uravugal.matrimony.models.KeyValue> kv =
+                    keyValueRepository.findByKeyColumn("interestTags");
+            if (kv.isPresent() && kv.get().getValueColumn() != null) {
+                java.util.List<java.util.Map<String, String>> tags =
+                        new com.fasterxml.jackson.databind.ObjectMapper()
+                                .readValue(kv.get().getValueColumn(),
+                                        new com.fasterxml.jackson.core.type.TypeReference<java.util.List<java.util.Map<String, String>>>() {});
+                return tags.stream().map(t -> t.get("code")).filter(c -> c != null)
+                        .collect(java.util.stream.Collectors.toSet());
+            }
+        } catch (Exception ignored) {}
+        // Hardcoded fallback
+        return java.util.Set.of(
+                "food", "travel", "photography", "music", "reading", "cricket",
+                "yoga", "movies", "technology", "fitness", "art", "dance",
+                "cooking", "gardening", "spirituality"
+        );
+    }
+
+    private java.util.List<String> parseHobbiesJson(String json) {
+        if (json == null || json.isBlank()) return new java.util.ArrayList<>();
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readValue(json, new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>() {});
+        } catch (Exception e) { return new java.util.ArrayList<>(); }
+    }
+
+    public ResultResponse getHobbies(String encodedUserId) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            Long userId = Long.parseLong(new String(java.util.Base64.getDecoder().decode(encodedUserId)));
+            UserDetailEntity ud = userDetailRepository.findByUserId(userId);
+            java.util.List<String> hobbies = ud != null ? parseHobbiesJson(ud.getHobbies()) : java.util.Collections.emptyList();
+            resp.setCode(200);
+            resp.setStatus(com.uravugal.matrimony.enums.ResponseStatus.SUCCESS);
+            resp.setMessage("Hobbies fetched");
+            resp.setData(java.util.Map.of("hobbies", hobbies));
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setStatus(com.uravugal.matrimony.enums.ResponseStatus.FAILURE);
+            resp.setMessage("Error: " + e.getMessage());
+        }
+        return resp;
+    }
+
+    public ResultResponse updateHobbies(String encodedUserId, java.util.List<String> hobbies) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            Long userId = Long.parseLong(new String(java.util.Base64.getDecoder().decode(encodedUserId)));
+            UserDetailEntity ud = userDetailRepository.findByUserId(userId);
+            if (ud == null) {
+                resp.setCode(404);
+                resp.setStatus(com.uravugal.matrimony.enums.ResponseStatus.FAILURE);
+                resp.setMessage("User details not found");
+                return resp;
+            }
+            // Validate codes against DB-driven allowed list
+            java.util.Set<String> allowedCodes = getAllowedHobbyCodes();
+            java.util.List<String> valid = hobbies != null
+                    ? hobbies.stream().filter(allowedCodes::contains).distinct().collect(java.util.stream.Collectors.toList())
+                    : java.util.Collections.emptyList();
+            ud.setHobbies(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(valid));
+            userDetailRepository.save(ud);
+            resp.setCode(200);
+            resp.setStatus(com.uravugal.matrimony.enums.ResponseStatus.SUCCESS);
+            resp.setMessage("Hobbies updated");
+            resp.setData(java.util.Map.of("hobbies", valid));
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setStatus(com.uravugal.matrimony.enums.ResponseStatus.FAILURE);
+            resp.setMessage("Error: " + e.getMessage());
+        }
+        return resp;
+    }
+
+    public ResultResponse getCommonInterests(String viewerEncodedId, Long profileUserId) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            Long viewerId = Long.parseLong(new String(java.util.Base64.getDecoder().decode(viewerEncodedId)));
+            UserDetailEntity viewerUd = userDetailRepository.findByUserId(viewerId);
+            UserDetailEntity profileUd = userDetailRepository.findByUserId(profileUserId);
+            java.util.List<String> viewerHobbies = parseHobbiesJson(viewerUd != null ? viewerUd.getHobbies() : null);
+            java.util.List<String> profileHobbies = parseHobbiesJson(profileUd != null ? profileUd.getHobbies() : null);
+            java.util.List<String> common = new java.util.ArrayList<>(viewerHobbies);
+            common.retainAll(profileHobbies);
+            resp.setCode(200);
+            resp.setStatus(com.uravugal.matrimony.enums.ResponseStatus.SUCCESS);
+            resp.setMessage("Common interests fetched");
+            resp.setData(java.util.Map.of("common", common, "count", common.size(),
+                    "viewerHobbies", viewerHobbies, "profileHobbies", profileHobbies));
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setStatus(com.uravugal.matrimony.enums.ResponseStatus.FAILURE);
+            resp.setMessage("Error: " + e.getMessage());
+        }
+        return resp;
+    }
+
+    public ResultResponse getInterestBasedMatches(String encodedUserId, int limit) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            Long userId = Long.parseLong(new String(java.util.Base64.getDecoder().decode(encodedUserId)));
+            com.uravugal.matrimony.models.UserEntity viewer = userRepository.findById(userId).orElse(null);
+            if (viewer == null || viewer.getCasteId() == null || viewer.getGender() == null) {
+                resp.setCode(404);
+                resp.setStatus(com.uravugal.matrimony.enums.ResponseStatus.FAILURE);
+                resp.setMessage("User not found or incomplete profile");
+                return resp;
+            }
+            UserDetailEntity viewerUd = userDetailRepository.findByUserId(userId);
+            java.util.List<String> viewerHobbies = parseHobbiesJson(viewerUd != null ? viewerUd.getHobbies() : null);
+            if (viewerHobbies.isEmpty()) {
+                resp.setCode(200);
+                resp.setStatus(com.uravugal.matrimony.enums.ResponseStatus.SUCCESS);
+                resp.setMessage("No hobbies set — add interests first");
+                resp.setData(java.util.Collections.emptyList());
+                return resp;
+            }
+            com.uravugal.matrimony.enums.Gender oppositeGender =
+                    viewer.getGender() == com.uravugal.matrimony.enums.Gender.M
+                            ? com.uravugal.matrimony.enums.Gender.F
+                            : com.uravugal.matrimony.enums.Gender.M;
+            java.util.List<com.uravugal.matrimony.models.UserEntity> candidates =
+                    userRepository.findAllByCasteIdAndGenderAndIsActive(
+                            viewer.getCasteId(), oppositeGender, com.uravugal.matrimony.enums.ActiveStatus.Y);
+
+            // Score each candidate by shared-hobby count
+            java.util.List<java.util.Map<String, Object>> scored = new java.util.ArrayList<>();
+            for (com.uravugal.matrimony.models.UserEntity c : candidates) {
+                if (c.getUserId().equals(userId)) continue;
+                UserDetailEntity cUd = userDetailRepository.findByUserId(c.getUserId());
+                java.util.List<String> cHobbies = parseHobbiesJson(cUd != null ? cUd.getHobbies() : null);
+                java.util.List<String> common = new java.util.ArrayList<>(viewerHobbies);
+                common.retainAll(cHobbies);
+                if (common.isEmpty()) continue;
+                java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
+                row.put("userId", c.getUserId());
+                row.put("firstName", c.getFirstName());
+                row.put("lastName", c.getLastName());
+                row.put("age", c.getAge());
+                row.put("location", c.getLocation());
+                row.put("profileImage", c.getProfileImage());
+                row.put("gender", c.getGender() != null ? c.getGender().name() : null);
+                row.put("sharedCount", common.size());
+                row.put("sharedInterests", common);
+                row.put("idVerified", Boolean.TRUE.equals(c.getIdVerified()));
+                row.put("educationVerified", Boolean.TRUE.equals(c.getEducationVerified()));
+                row.put("incomeVerified", Boolean.TRUE.equals(c.getIncomeVerified()));
+                scored.add(row);
+            }
+            scored.sort((a, b) -> ((Integer) b.get("sharedCount")).compareTo((Integer) a.get("sharedCount")));
+            java.util.List<java.util.Map<String, Object>> topMatches = scored.subList(0, Math.min(scored.size(), limit));
+            resp.setCode(200);
+            resp.setStatus(com.uravugal.matrimony.enums.ResponseStatus.SUCCESS);
+            resp.setMessage("Interest-based matches fetched");
+            resp.setData(topMatches);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setStatus(com.uravugal.matrimony.enums.ResponseStatus.FAILURE);
+            resp.setMessage("Error: " + e.getMessage());
+        }
+        return resp;
+    }
+
 public ResultResponse calculateProfileCompletion(String userId) {
     ResultResponse response = new ResultResponse();
     try {
@@ -352,11 +524,13 @@ public ResultResponse calculateProfileCompletion(String userId) {
         
         // Define fields to check
 // Define fields to check
-List<String> requiredFields = Arrays.asList(
+List<String> requiredFields = new ArrayList<>(Arrays.asList(
     "horoscope", "profileImage", "height", "weight", "star",
-    "moonSign", "dosham", "maritalStatus", "motherLanguage", 
-    "familyType", "familyStatus", "numberOfSiblings"
-);
+    "moonSign", "dosham", "maritalStatus", "motherLanguage",
+    "familyType", "familyStatus", "numberOfSiblings",
+    "noOfBrothers", "noOfSisters", "brotherMarried", "sisterMarried",
+    "hobbies"
+));
 
 int totalFields = requiredFields.size();
         AtomicInteger completedFields = new AtomicInteger(0);
@@ -368,7 +542,7 @@ int totalFields = requiredFields.size();
             completedFields.incrementAndGet();
             missingFields.remove("profileImage");
         } else {
-            nextActions.put("PROFILE_IMAGE", createAction("Add Profile Photo", "Get 5x more profile views", 20, "/profile/photo"));
+            nextActions.put("PROFILE_IMAGE", createAction("Add Profile Photo", "Get 5x more profile views", 20, "/(root)/(tabs)/profile"));
         }
 
         // Fetch UserDetailEntity
@@ -398,18 +572,27 @@ int totalFields = requiredFields.size();
             checkField(basicInfo, "marital_status", "maritalStatus", missingFields, completedFields::incrementAndGet);
             checkField(basicInfo, "mother_language", "motherLanguage", missingFields, completedFields::incrementAndGet);
             
-            if (userDetails.getHeight() != null && !userDetails.getHeight().isEmpty()) {
+            String h = userDetails.getHeight() != null ? userDetails.getHeight().trim() : "";
+            boolean hasHeight = !h.isEmpty() && !h.equals("-") && !h.equalsIgnoreCase("Not specified");
+            if (hasHeight) {
                 completedFields.incrementAndGet();
                 missingFields.remove("height");
-            } else {
-                nextActions.put("HEIGHT", createAction("Add Height", "Help others find you", 10, "/(root)/(tabs)/profile"));
             }
-            
-            if (userDetails.getWeight() != null && !userDetails.getWeight().isEmpty()) {
+
+            String w = userDetails.getWeight() != null ? userDetails.getWeight().trim() : "";
+            boolean hasWeight = !w.isEmpty() && !w.equals("-") && !w.equalsIgnoreCase("Not specified");
+            if (hasWeight) {
                 completedFields.incrementAndGet();
                 missingFields.remove("weight");
-            } else if (!nextActions.containsKey("HEIGHT")) {
+            }
+
+            // Show the right next action based on what's missing
+            if (!hasHeight && !hasWeight) {
                 nextActions.put("HEIGHT_WEIGHT", createAction("Add Height & Weight", "Complete your physical details", 10, "/(root)/(tabs)/profile"));
+            } else if (!hasHeight) {
+                nextActions.put("HEIGHT", createAction("Add Height", "Help others find you", 10, "/(root)/(tabs)/profile"));
+            } else if (!hasWeight) {
+                nextActions.put("WEIGHT", createAction("Add Weight", "Complete your physical details", 10, "/(root)/(tabs)/profile"));
             }
         }
 
@@ -431,7 +614,21 @@ if (familyInfo != null && familyInfo.isArray() && familyInfo.size() > 0) {
     checkField(firstFamily, "family_type", "familyType", missingFields, completedFields::incrementAndGet);
     checkField(firstFamily, "family_status", "familyStatus", missingFields, completedFields::incrementAndGet);
     checkField(firstFamily, "no_of_siblings", "numberOfSiblings", missingFields, completedFields::incrementAndGet);
+    checkField(firstFamily, "no_of_brother", "noOfBrothers", missingFields, completedFields::incrementAndGet);
+    checkField(firstFamily, "no_of_sister", "noOfSisters", missingFields, completedFields::incrementAndGet);
+    checkField(firstFamily, "brother_married", "brotherMarried", missingFields, completedFields::incrementAndGet);
+    checkField(firstFamily, "sister_married", "sisterMarried", missingFields, completedFields::incrementAndGet);
 }
+
+        // Check hobbies/interests
+        if (userDetails.getHobbies() != null && !userDetails.getHobbies().isEmpty()
+                && !userDetails.getHobbies().equals("[]") && !userDetails.getHobbies().equals("null")) {
+            completedFields.incrementAndGet();
+            missingFields.remove("hobbies");
+        } else {
+            nextActions.put("HOBBIES", createAction("Add Your Interests",
+                    "Get matched with people who share your passions", 10, "/(root)/(tabs)/profile"));
+        }
 
         // Calculate completion percentage
 int percentage = (int) Math.round((completedFields.get() * 100.0) / totalFields);        
@@ -518,17 +715,19 @@ private JsonNode parseJsonSafely(ObjectMapper mapper, String json) {
 }
 
 // Helper method to check and update field completion
-private void checkField(JsonNode node, String fieldName, String fieldKey, 
+private void checkField(JsonNode node, String fieldName, String fieldKey,
                        List<String> missingFields, Runnable onComplete) {
-    if (node == null) {
-        return; // Skip if node is null
-    }
-    JsonNode fieldNode = node.get(fieldName);    System.out.println("node"+node);
-    if (fieldNode != null && !fieldNode.isNull() && !fieldNode.asText().isEmpty()) {
-        onComplete.run();
-        missingFields.remove(fieldKey);
-        System.out.println("missingFields"+missingFields);
-
+    if (node == null) return;
+    JsonNode fieldNode = node.get(fieldName);
+    if (fieldNode != null && !fieldNode.isNull()) {
+        String val = fieldNode.asText().trim();
+        // Exclude placeholder/empty values
+        if (!val.isEmpty() && !val.equals("-") && !val.equalsIgnoreCase("Not specified")
+                && !val.equalsIgnoreCase("null") && !val.equalsIgnoreCase("NA")
+                && !val.equalsIgnoreCase("N/A")) {
+            onComplete.run();
+            missingFields.remove(fieldKey);
+        }
     }
 }
 

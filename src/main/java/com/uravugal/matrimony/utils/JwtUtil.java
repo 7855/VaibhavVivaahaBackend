@@ -28,6 +28,8 @@ public class JwtUtil {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
+    private static final long ADMIN_TOKEN_EXPIRATION = 7L * 24 * 60 * 60 * 1000; // 1 week
+
     public String generateToken(Long userId, String mobile, String role) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
@@ -35,11 +37,14 @@ public class JwtUtil {
         claims.put("role", role);
         claims.put("type", "access");
 
+        // Admin gets 1 week token, regular users get default (15 min)
+        long tokenExpiry = "ADM".equals(role) ? ADMIN_TOKEN_EXPIRATION : expiration;
+
         return Jwts.builder()
                 .claims(claims)
                 .subject(String.valueOf(userId))
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + expiration))
+                .expiration(new Date(System.currentTimeMillis() + tokenExpiry))
                 .signWith(getSigningKey())
                 .compact();
     }

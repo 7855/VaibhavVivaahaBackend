@@ -40,4 +40,7 @@ public class UserSubscriptions extends GenericEntity{
     @Column(name = "paymentReference")
     private String paymentReference;
 
+    /** Monthly boost credits — Gold=2, Platinum=5. Reset on 1st of each month by scheduler. */
+    @Column(name = "boost_credits")
+    private Integer boostCredits = 0;
 }

@@ -31,27 +31,11 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // Public endpoints — no JWT required
-                .requestMatchers(
-                    "/user/login",
-                    "/user/createUser",
-                    "/user/sendOtp/**",
-                    "/user/verifyOtp",
-                    "/user/changePin",
-                    "/user/createStarterProfile",
-                    "/auth/**",
-                    "/caste/**",
-                    "/ws/**",
-                    "/swagger-ui/**",
-                    "/v2/api-docs/**",
-                    "/swagger-resources/**"
-                ).permitAll()
-                // Admin endpoints — require ADMIN role
-                .requestMatchers("/admin/**").hasRole("ADM")
-                // Everything else — must be authenticated
-                .anyRequest().authenticated()
-            )
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                // JWT DISABLED — all endpoints open. Re-enable later.
+                .anyRequest().permitAll()
+            );
+            // JWT filter disabled — uncomment to re-enable
+            // .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

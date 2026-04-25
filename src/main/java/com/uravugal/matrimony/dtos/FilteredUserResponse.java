@@ -22,4 +22,8 @@ public class FilteredUserResponse {
     private Long subscriptionPlanId;
     private String subscriptionTitle;
     private String subscriptionTag;
+    private Boolean idVerified;
+    private Boolean educationVerified;
+    private Boolean incomeVerified;
+    private Boolean hasActiveBoost;
 }

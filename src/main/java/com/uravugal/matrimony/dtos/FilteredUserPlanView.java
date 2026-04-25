@@ -17,8 +17,12 @@ public interface FilteredUserPlanView {
     String getSubscriptionTitle();
 
     // Verification flags — surfaced as small shield on result cards.
-    Boolean getIdVerified();
-    Boolean getEducationVerified();
-    Boolean getIncomeVerified();
+    // Integer (1/0) because native SQL returns TINYINT, not Java Boolean.
+    Integer getIdVerified();
+    Integer getEducationVerified();
+    Integer getIncomeVerified();
+
+    // Boost — true if user has an active 24h boost right now.
+    Integer getHasActiveBoost();
 }
 

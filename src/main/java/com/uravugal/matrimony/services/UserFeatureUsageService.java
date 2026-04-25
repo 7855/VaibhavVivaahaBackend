@@ -45,13 +45,8 @@ public class UserFeatureUsageService {
 
             UserSubscriptions userSubscriptions = userSubscriptionsOpt.get();
 
-            // Block free plan users
-            if (userSubscriptions.getSubscriptionPlanId() == 1) {
-                response.setCode(403);
-                response.setMessage("Free plan users cannot use this feature");
-                response.setStatus(ResponseStatus.FAILURE);
-                return response;
-            }
+            // Free plan check removed — Free users now have limited features (e.g. 3 requests)
+            // Feature-level limits in planFeatures table handle gating per plan
 
             System.out.println("featureId" + featureId);
             System.out.println("userSubscriptions.getSubscriptionPlanId()" + userSubscriptions.getSubscriptionPlanId());
@@ -86,10 +81,24 @@ public class UserFeatureUsageService {
                     response.setStatus(ResponseStatus.FAILURE);
                 }
             } else {
-                // ⚠ No insert happens here
-                response.setCode(404);
-                response.setMessage("Feature usage record not found for this user");
-                response.setStatus(ResponseStatus.FAILURE);
+                // First-time use — create a new usage record with usedCount=1
+                int limit = Integer.parseInt(planFeatures.getLimitValue());
+                if (limit > 0) {
+                    UserFeatureUsage newUsage = new UserFeatureUsage();
+                    newUsage.setUserId(userId);
+                    newUsage.setSubscriptionId(subscriptionId);
+                    newUsage.setFeatureId(featureId);
+                    newUsage.setUsedCount(1);
+                    userFeatureUsageRepository.save(newUsage);
+
+                    response.setCode(200);
+                    response.setMessage("Feature usage started (1/" + limit + ")");
+                    response.setStatus(ResponseStatus.SUCCESS);
+                } else {
+                    response.setCode(401);
+                    response.setMessage("Feature usage limit exceeded");
+                    response.setStatus(ResponseStatus.FAILURE);
+                }
             }
 
         } catch (Exception e) {

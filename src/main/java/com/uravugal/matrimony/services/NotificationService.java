@@ -48,13 +48,17 @@ public class NotificationService {
                 notifRes.setTimestamp(notification.getCreatedAt().toString()); // Consider using ISO format
                 notifRes.setIsRead(notification.getIsRead());
 
-                // Fetch sender user info
-                userRepository.findById(notification.getSenderId()).ifPresent(sender -> {
-                    notifRes.setAvatar(sender.getProfileImage());
-                    notifRes.setUserName(sender.getFirstName());
-                    notifRes.setUserAge(sender.getAge());
-                    notifRes.setUserLocation(sender.getLocation());
-                });
+                // Fetch sender user info (skip for system notifications where senderId is null)
+                if (notification.getSenderId() != null) {
+                    userRepository.findById(notification.getSenderId()).ifPresent(sender -> {
+                        notifRes.setAvatar(sender.getProfileImage());
+                        notifRes.setUserName(sender.getFirstName());
+                        notifRes.setUserAge(sender.getAge());
+                        notifRes.setUserLocation(sender.getLocation());
+                    });
+                } else {
+                    notifRes.setUserName("Vaibhav Vivaaha");
+                }
 
                 notifRes.setSenderId(notification.getSenderId());
                 notifRes.setReceiverId(notification.getReceiverId());

@@ -27,7 +27,7 @@ public class PaymentRequestService {
     private static final String AWS_BASE_PATH = "paymentRequests/";
 
     public ResultResponse createPaymentRequest(Long userId, Long planId, BigDecimal amount, String utrNumber,
-            MultipartFile file) {
+            MultipartFile file, String note) {
         ResultResponse response = new ResultResponse();
 
         if (file != null && !file.isEmpty()) {
@@ -38,6 +38,7 @@ public class PaymentRequestService {
                 paymentRequest.setAmount(amount);
                 paymentRequest.setUtrNumber(utrNumber);
                 paymentRequest.setStatus(PaymentRequestStatus.PENDING);
+                if (note != null && !note.isBlank()) paymentRequest.setNote(note);
                 // Save initially to generate the ID needed for the S3 path
                 paymentRequest = paymentRequestRepository.save(paymentRequest);
 
@@ -45,18 +46,12 @@ public class PaymentRequestService {
                         + UUID.randomUUID().toString().substring(0, 6)
                         + "." + getFileExtension(file.getOriginalFilename());
 
-                File tempFile = File.createTempFile("temp-", fileName);
+                File tempFile = new File(System.getProperty("java.io.tmpdir"), fileName);
                 file.transferTo(tempFile);
 
                 String fileUrl = s3UploadService.uploadSponsorImage(tempFile,
                         AWS_BASE_PATH + "req_" + paymentRequest.getId());
                 System.out.println("fileUrl==>" + fileUrl);
-
-                int startIndex = fileUrl.indexOf("https://");
-                if (startIndex != -1) {
-                    String domain = fileUrl.substring(0, fileUrl.indexOf("/", 8));
-                    fileUrl = domain + "/" + AWS_BASE_PATH + "req_" + paymentRequest.getId() + "/" + fileName;
-                }
 
                 paymentRequest.setScreenshotUrl(fileUrl);
                 paymentRequestRepository.save(paymentRequest);

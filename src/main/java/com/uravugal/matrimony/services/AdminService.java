@@ -569,6 +569,27 @@ public class AdminService {
             paymentReq.setVerifiedBy(request.getAdminId());
             paymentRequestRepository.save(paymentReq);
 
+            // BOOST_PURCHASE: increment boost_credits instead of creating a subscription
+            if ("BOOST_PURCHASE".equals(paymentReq.getNote())) {
+                java.util.List<UserSubscriptions> activeSubs = userSubscriptionsRepository
+                        .findByUserIdAndStatus(paymentReq.getUserId(), SubscriptionStatus.ACTIVE);
+                if (!activeSubs.isEmpty()) {
+                    UserSubscriptions sub = activeSubs.get(0);
+                    int current = sub.getBoostCredits() != null ? sub.getBoostCredits() : 0;
+                    sub.setBoostCredits(current + 1);
+                    userSubscriptionsRepository.save(sub);
+                }
+                pushNotificationService.sendPushNotificationToUser(
+                        paymentReq.getUserId(),
+                        "Boost Ready! 🚀",
+                        "Your boost credit has been added. Go to your profile and boost now!"
+                );
+                response.setCode(200);
+                response.setStatus(ResponseStatus.SUCCESS);
+                response.setMessage("Boost purchase approved — 1 credit added");
+                return response;
+            }
+
             Optional<SubscriptionPlan> optPlan = subscriptionPlanRepository.findById(paymentReq.getPlanId());
             if (optPlan.isEmpty()) {
                 response.setCode(404);
@@ -590,12 +611,23 @@ public class AdminService {
 
             userSubscriptionsRepository.save(subscription);
 
-            // Send push notification to user about payment approval
-            pushNotificationService.sendPushNotificationToUser(
+            // Send push notification to user about payment approval (bypass plan gate)
+            pushNotificationService.sendPushNotificationToUserDirect(
                 paymentReq.getUserId(),
                 "Payment Approved! 🎉",
                 "Your " + plan.getTitle() + " plan is now active. Enjoy premium features!"
             );
+
+            // In-app notification
+            try {
+                Notification notif = new Notification();
+                notif.setReceiverId(paymentReq.getUserId());
+                notif.setTitle("Payment Approved");
+                notif.setMessage("Your " + plan.getTitle() + " plan is now active. Enjoy premium features!");
+                notif.setNotificationCategory("PAYMENT_APPROVED");
+                notif.setIsRead(ActiveStatus.N);
+                notificationRepository.save(notif);
+            } catch (Exception ignored) { }
 
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);
@@ -989,12 +1021,23 @@ public class AdminService {
             paymentReq.setVerifiedBy(request.getAdminId());
             paymentRequestRepository.save(paymentReq);
 
-            // Notify user
-            pushNotificationService.sendPushNotificationToUser(
+            // Push notification (bypass plan gate — system notification)
+            pushNotificationService.sendPushNotificationToUserDirect(
                 paymentReq.getUserId(),
                 "Payment Rejected",
                 "Your payment request has been rejected. Please contact support for details."
             );
+
+            // In-app notification
+            try {
+                Notification notif = new Notification();
+                notif.setReceiverId(paymentReq.getUserId());
+                notif.setTitle("Payment Rejected");
+                notif.setMessage("Your payment request has been rejected. Please contact support for details.");
+                notif.setNotificationCategory("PAYMENT_REJECTED");
+                notif.setIsRead(ActiveStatus.N);
+                notificationRepository.save(notif);
+            } catch (Exception ignored) { }
 
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);

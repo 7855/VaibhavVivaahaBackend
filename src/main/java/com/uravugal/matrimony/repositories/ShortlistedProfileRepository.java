@@ -26,6 +26,8 @@ public interface ShortlistedProfileRepository extends JpaRepository<ShortlistedP
         Long shortlistedUserId
     );
 
+    Long countByShortlistedUserIdAndIsActive(Long shortlistedUserId, ActiveStatus status);
+
     @Query("""
             SELECT COUNT(s) > 0
             FROM ShortlistedProfile s

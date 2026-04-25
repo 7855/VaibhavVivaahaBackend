@@ -16,7 +16,7 @@ public class CasteEntity extends GenericEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name="casteName", length = 100, nullable = false)
+    @Column(name = "casteName", length = 100, nullable = false)
     private String casteName;
 
     @Enumerated(EnumType.STRING)
