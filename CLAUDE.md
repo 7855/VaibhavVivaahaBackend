@@ -301,6 +301,7 @@ All extend `JpaRepository<Entity, Long>`. Custom methods worth noting:
 | `AdminController` | `/admin` | dashboard counts, user list, approve/reject |
 | `ServiceRequestController` ⭐ NEW | `/service-request` | `POST /create/{encodedUserId}` body `{requestType, note}`, `GET /my/{encodedUserId}?page&size`, `GET /admin/list?status&requestType&page&size`, `PATCH /admin/{id}/status` body `{status, adminId}` |
 | `FamilyLoginController` ⭐ NEW | `/family-login` | `POST /create/{encodedUserId}` body `FamilyLogin`, `GET /mine/{encodedUserId}`, `DELETE /{encodedUserId}/{familyLoginId}`, `GET /admin/list`, `DELETE /admin/{id}` |
+| `CallbackRequestController` ⭐ NEW | `/callback-request` | `POST /create/{encodedUserId}` body `{name, mobile, email?, planInterested, note?, bestTimeToCall?}` (encodedUserId can be `'guest'`); `GET /my/{encodedUserId}?page&size`; `GET /admin/list?status&page&size`; `POST /admin/{id}/status` body `{status, adminId}`. Supports Play Store-safe payment fallback flow. |
 
 ### 8.5 `dtos/`
 - **`ResultResponse`** — standard `{code, status, message, data}`
@@ -494,6 +495,12 @@ N/A.
 | `DELETE /family-login/{encodedUserId}/{id}` ⭐ | `FamilyAccessScreen.tsx` | — |
 | `GET /family-login/admin/list` ⭐ | — | `(dashboard)/users/family-logins/page.tsx` |
 | `DELETE /family-login/admin/{id}` ⭐ | — | `(dashboard)/users/family-logins/page.tsx` |
+| `GET /keyValue/getKeyValueByKey/PAYMENT_MODE` ⭐ | `PaymentScreen.tsx` | (admin sets via keyValue editor) |
+| `GET /keyValue/getKeyValueByKey/ADMIN_CONTACT` ⭐ | `RelationshipManagerView.tsx` | (admin sets via keyValue editor) |
+| `POST /callback-request/create/{encodedUserId}` ⭐ | `RelationshipManagerView.tsx` | — |
+| `GET /callback-request/my/{encodedUserId}` ⭐ | (future "My Requests" tab) | — |
+| `GET /callback-request/admin/list` ⭐ | — | (admin lead inbox — future) |
+| `POST /callback-request/admin/{id}/status` ⭐ | — | (admin lead inbox — future) |
 
 ## 17. Known landmines
 - **camelCase column names everywhere** — `createdAt`, `isActive`, `featureId`, `subscriptionPlanId`, `planFeatures` (the table itself!), `primaryUserId`, etc. NOT snake_case. Easy to break with naive migration scripts.
@@ -511,6 +518,23 @@ N/A.
 - **WebSocket presence is in-memory only** — multi-instance deploys will desync `PresenceTracker`.
 
 ## 18. Recent changes log (rolling, newest first)
+### 2026-05-06 — CallbackRequest entity + Payment mode toggle (Play Store gating)
+**Why:** Google Play Store may reject the app due to QR/UPI payment screen being seen as off-platform billing for digital subscriptions. Strategy: gate the QR view via a `PAYMENT_MODE` keyValue flag. When flag is `CONTACT` (default for Play Store submission), mobile shows a "Talk to a Relationship Manager" view with a callback request form. Once Play Store approves, flip the flag to `QR` via admin panel.
+
+**New files:**
+- `models/CallbackRequest.java` — table `callback_requests` with fields `id, userId (nullable), name, mobile, email, planInterested, note, bestTimeToCall, status (NEW/CONTACTED/CONVERTED/CLOSED), assignedAdminId` + GenericEntity timestamps
+- `repositories/CallbackRequestRepository.java` — `findByUserIdOrderByIdDesc`, `findByStatusOrderByIdDesc`, `findFirstByUserIdAndPlanInterestedAndStatus` (dedup)
+- `services/CallbackRequestService.java` — `createRequest` (validates name + mobile regex `^\+?\d{10,15}$`, dedups NEW requests by user+plan, tolerates `'guest'` encodedUserId), `getMyRequests`, `adminListRequests`, `adminUpdateStatus`
+- `controllers/CallbackRequestController.java` — endpoints listed in section 8.4
+- `seed-payment-mode.sql` — inserts default `PAYMENT_MODE` (CONTACT) + `ADMIN_CONTACT` rows into keyValue
+
+**No existing files modified.** All wiring is via the existing `KeyValueController.getKeyValueByKey({key})` endpoint — frontend reads `PAYMENT_MODE` and `ADMIN_CONTACT` keys.
+
+**Deploy:**
+1. Hibernate auto-creates `callback_requests` table on startup (`ddl-auto=update`)
+2. Run `seed-payment-mode.sql` to insert default keyValue rows
+3. Frontend mobile build picks up the new endpoints automatically
+
 ### 2026-04-09 — PIN dual-format login (base64 + BCrypt)
 - `UserService.login` now detects PIN format: strings starting with `$2` are BCrypt-matched via `BCryptPasswordEncoder.matches`, others are base64-decoded. Resolves `Illegal base64 character 24` crash on accounts whose PIN was reset via `AuthService.resetPassword`.
 - Base64 decode is wrapped in try/catch so malformed values fall through to family login fall-through instead of 500.

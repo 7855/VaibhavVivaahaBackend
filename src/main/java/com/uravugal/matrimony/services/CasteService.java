@@ -53,7 +53,7 @@ public class CasteService {
     public ResultResponse updateCaste(Long id, CasteEntity updated) {
         ResultResponse resp = new ResultResponse();
         try {
-            Optional<CasteEntity> opt = casteRepository.findById(id);
+            Optional<CasteEntity> opt = casteRepository.findById(id.intValue());
             if (opt.isEmpty()) {
                 resp.setCode(404);
                 resp.setMessage("Caste not found");

@@ -472,8 +472,8 @@ public ResultResponse updatePersonalInfo(PersonalInfoRequest request) {
                             ? com.uravugal.matrimony.enums.Gender.F
                             : com.uravugal.matrimony.enums.Gender.M;
             java.util.List<com.uravugal.matrimony.models.UserEntity> candidates =
-                    userRepository.findAllByCasteIdAndGenderAndIsActive(
-                            viewer.getCasteId(), oppositeGender, com.uravugal.matrimony.enums.ActiveStatus.Y);
+                    userRepository.findAllByCasteIdAndGenderAndIsActiveAndIsUserNot(
+                            viewer.getCasteId(), oppositeGender, com.uravugal.matrimony.enums.ActiveStatus.Y, com.uravugal.matrimony.enums.IsUser.ADM);
 
             // Score each candidate by shared-hobby count
             java.util.List<java.util.Map<String, Object>> scored = new java.util.ArrayList<>();

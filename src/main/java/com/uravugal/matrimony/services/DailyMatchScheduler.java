@@ -3,6 +3,7 @@ package com.uravugal.matrimony.services;
 import com.uravugal.matrimony.dtos.ResultResponse;
 import com.uravugal.matrimony.enums.ActiveStatus;
 import com.uravugal.matrimony.enums.Gender;
+import com.uravugal.matrimony.enums.IsUser;
 import com.uravugal.matrimony.enums.SubscriptionStatus;
 import com.uravugal.matrimony.models.Features;
 import com.uravugal.matrimony.models.Notification;
@@ -130,8 +131,8 @@ public class DailyMatchScheduler {
                 // so the notification body roughly matches what the user sees on home.
                 Gender oppositeGender = (user.getGender() == Gender.M) ? Gender.F : Gender.M;
                 List<UserEntity> matches = userRepository
-                        .findAllByCasteIdAndGenderAndIsActive(
-                                user.getCasteId(), oppositeGender, ActiveStatus.Y);
+                        .findAllByCasteIdAndGenderAndIsActiveAndIsUserNot(
+                                user.getCasteId(), oppositeGender, ActiveStatus.Y, IsUser.ADM);
 
                 if (matches == null || matches.isEmpty()) {
                     skipped++;
@@ -195,7 +196,7 @@ public class DailyMatchScheduler {
                     n.setMessage(body);
                     n.setNotificationCategory("DAILY_MATCH");
                     n.setIsRead(ActiveStatus.N);
-                    n.setCreatedAt(LocalDateTime.now());
+                    n.setCreatedAt(new java.util.Date());
                     n.setCreatedBy("system");
                     n.setIsActive(ActiveStatus.Y);
                     notificationRepository.save(n);

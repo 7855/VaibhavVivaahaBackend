@@ -1,7 +1,6 @@
 package com.uravugal.matrimony.config;
 
 import com.uravugal.matrimony.dtos.ResultResponse;
-import com.uravugal.matrimony.enums.ResponseStatus;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;

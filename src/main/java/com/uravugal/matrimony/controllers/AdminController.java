@@ -274,19 +274,6 @@ public class AdminController {
         return resp;
     }
 
-    @PostMapping("/payment/reject")
-    public ResultResponse rejectPayment(@RequestBody AdminApprovePaymentRequestDTO request) {
-        ResultResponse resp = new ResultResponse();
-        try {
-            resp = adminService.rejectPayment(request);
-        } catch (Exception e) {
-            resp.setCode(500);
-            resp.setMessage("Something Went Wrong. " + e.getMessage());
-            resp.setStatus(ResponseStatus.FAILURE);
-        }
-        return resp;
-    }
-
     // ==================== SUBSCRIPTION MANAGEMENT ====================
 
     @GetMapping("/subscriptions/users")

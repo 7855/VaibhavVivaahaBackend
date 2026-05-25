@@ -319,4 +319,54 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
             """, nativeQuery = true)
     List<Object[]> findUserDetailForAdmin(@Param("userId") Long userId);
 
+    @Query(value = """
+            SELECT
+                u.userId, u.firstName, u.lastName, u.age, u.location,
+                u.profileImage, u.isUser, ud.height, ud.occupation, ud.annualIncome,
+                sp.id AS subscriptionPlanId, sp.title AS subscriptionTitle,
+                CASE WHEN u.id_verified = 1 THEN 1 ELSE 0 END AS idVerified,
+                CASE WHEN u.education_verified = 1 THEN 1 ELSE 0 END AS educationVerified,
+                CASE WHEN u.income_verified = 1 THEN 1 ELSE 0 END AS incomeVerified,
+                CASE WHEN pb.id IS NOT NULL THEN 1 ELSE 0 END AS hasActiveBoost
+            FROM users u
+            JOIN user_details ud ON u.userId = ud.userId
+            LEFT JOIN user_subscriptions us ON u.userId = us.userId AND us.status = 'ACTIVE'
+            LEFT JOIN subscription_plans sp ON us.subscriptionPlanId = sp.id
+            LEFT JOIN profile_boosts pb ON u.userId = pb.userId AND pb.status = 'ACTIVE' AND pb.expiresAt > NOW()
+            WHERE u.gender = :gender
+              AND u.casteId = :casteId
+              AND u.userId != :excludeUserId
+              AND u.isActive = 'Y'
+              AND u.isUser != 'ADM'
+              AND ud.hobbies IS NOT NULL
+              AND (
+                ud.hobbies LIKE CONCAT('%', :h0, '%')
+                OR (:h1 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h1, '%'))
+                OR (:h2 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h2, '%'))
+                OR (:h3 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h3, '%'))
+                OR (:h4 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h4, '%'))
+                OR (:h5 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h5, '%'))
+                OR (:h6 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h6, '%'))
+                OR (:h7 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h7, '%'))
+                OR (:h8 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h8, '%'))
+                OR (:h9 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h9, '%'))
+                OR (:h10 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h10, '%'))
+                OR (:h11 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h11, '%'))
+                OR (:h12 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h12, '%'))
+                OR (:h13 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h13, '%'))
+                OR (:h14 IS NOT NULL AND ud.hobbies LIKE CONCAT('%', :h14, '%'))
+              )
+            ORDER BY hasActiveBoost DESC
+            LIMIT 30
+            """, nativeQuery = true)
+    List<FilteredUserPlanView> findInterestMatches(
+            @Param("gender") String gender,
+            @Param("casteId") Integer casteId,
+            @Param("excludeUserId") Long excludeUserId,
+            @Param("h0") String h0, @Param("h1") String h1, @Param("h2") String h2,
+            @Param("h3") String h3, @Param("h4") String h4, @Param("h5") String h5,
+            @Param("h6") String h6, @Param("h7") String h7, @Param("h8") String h8,
+            @Param("h9") String h9, @Param("h10") String h10, @Param("h11") String h11,
+            @Param("h12") String h12, @Param("h13") String h13, @Param("h14") String h14);
+
 }

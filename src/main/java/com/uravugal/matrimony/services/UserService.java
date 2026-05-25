@@ -952,9 +952,9 @@ private Integer parseIntSafe(String val) {
             UserSubscriptions freeSub = new UserSubscriptions();
             freeSub.setUserId(userEntity.getUserId());
             freeSub.setSubscriptionPlanId(1L);
-            freeSub.setStatus(SubscriptionStatus.ACTIVE);
+            freeSub.setStatus(com.uravugal.matrimony.enums.SubscriptionStatus.ACTIVE);
             freeSub.setStartDate(java.time.LocalDate.now());
-            freeSub.setAutoRenew('N');
+            freeSub.setAutoRenew(com.uravugal.matrimony.enums.ActiveStatus.N);
             userSubscriptionRepository.save(freeSub);
 
             // Return encoded userId so the frontend can save hobbies
