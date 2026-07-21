@@ -183,11 +183,12 @@ public class UserController {
     // Near You
     @GetMapping("/getUserDetailByCasteIdAndLocation/{casteId}/{gender}/{location}")
     public ResultResponse getUserDetailByCasteIdAndLocation(@PathVariable Integer casteId,
-            @PathVariable Gender gender, @PathVariable String location) {
+            @PathVariable Gender gender, @PathVariable String location,
+            @RequestParam(required = false) Long requesterId) {
         ResultResponse resp = new ResultResponse();
         try {
             gender = gender == Gender.M ? Gender.F : Gender.M;
-            resp = userService.getUserDetailByCasteIdAndLocation(casteId, gender, location);
+            resp = userService.getUserDetailByCasteIdAndLocation(casteId, gender, location, requesterId);
         } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Something Went Wrong. " + e.getMessage());
@@ -199,11 +200,12 @@ public class UserController {
     // Daily recommendations
 
     @GetMapping("/getDailyShuffledUsersByCaste/{casteId}/{gender}")
-    public ResultResponse getDailyShuffledUsersByCaste(@PathVariable Integer casteId, @PathVariable Gender gender) {
+    public ResultResponse getDailyShuffledUsersByCaste(@PathVariable Integer casteId, @PathVariable Gender gender,
+            @RequestParam(required = false) Long requesterId) {
         ResultResponse resp = new ResultResponse();
         try {
             gender = gender == Gender.M ? Gender.F : Gender.M;
-            resp = userService.getDailyShuffledUsersByCaste(casteId, gender);
+            resp = userService.getDailyShuffledUsersByCaste(casteId, gender, requesterId);
         } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Something Went Wrong. " + e.getMessage());
@@ -213,11 +215,12 @@ public class UserController {
     }
 
     @GetMapping("/getTop30NewUsers/{casteId}/{gender}")
-    public ResultResponse getTop30NewUsers(@PathVariable Integer casteId, @PathVariable Gender gender) {
+    public ResultResponse getTop30NewUsers(@PathVariable Integer casteId, @PathVariable Gender gender,
+            @RequestParam(required = false) Long requesterId) {
         ResultResponse resp = new ResultResponse();
         try {
             gender = gender == Gender.M ? Gender.F : Gender.M;
-            resp = userService.getTop30NewUsers(casteId, gender);
+            resp = userService.getTop30NewUsers(casteId, gender, requesterId);
         } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Something Went Wrong. " + e.getMessage());
@@ -244,10 +247,11 @@ public class UserController {
     @GetMapping("/getTenShuffledUsers/{gender}/{casteId}")
     public ResultResponse getTenShuffledUsers(
             @PathVariable Gender gender,
-            @PathVariable Integer casteId) {
+            @PathVariable Integer casteId,
+            @RequestParam(required = false) Long requesterId) {
         ResultResponse resp = new ResultResponse();
         try {
-            resp = userService.getTenShuffledUsers(gender, casteId);
+            resp = userService.getTenShuffledUsers(gender, casteId, requesterId);
         } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Something Went Wrong. " + e.getMessage());
@@ -430,6 +434,20 @@ public class UserController {
             resp.setStatus(ResponseStatus.FAILURE);
         }
         return resp;
+    }
+
+    /**
+     * Read-only contact-reveal quota check for the logged-in user's own Profile tab —
+     * does not spend a reveal or target any profile.
+     */
+    @GetMapping("/contactRevealStatus/{viewerEncodedId}")
+    public ResultResponse getContactRevealStatus(@PathVariable String viewerEncodedId) {
+        return userService.getContactRevealStatus(viewerEncodedId);
+    }
+
+    @GetMapping("/getRevealedContacts/{viewerEncodedId}")
+    public ResultResponse getRevealedContacts(@PathVariable String viewerEncodedId) {
+        return userService.getRevealedContacts(viewerEncodedId);
     }
 
     @GetMapping("/getInterestMatches/{casteId}/{gender}/{encodedUserId}")

@@ -33,4 +33,9 @@ public ResultResponse deleteLike(
     @PathVariable Long likedTo) {
     return userLikesService.deleteLike(likedBy, likedTo);
 }
+
+@GetMapping("/whoLikedMe/{encodedId}")
+public ResultResponse getWhoLikedMe(@PathVariable String encodedId) {
+    return userLikesService.getWhoLikedMe(encodedId);
+}
 }

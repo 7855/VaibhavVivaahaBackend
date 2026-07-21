@@ -357,10 +357,12 @@ public class AdminController {
     }
 
     @PutMapping("/verification/images/{galleryId}/reject")
-    public ResultResponse rejectImage(@PathVariable Long galleryId) {
+    public ResultResponse rejectImage(@PathVariable Long galleryId,
+            @RequestBody(required = false) java.util.Map<String, String> body) {
         ResultResponse resp = new ResultResponse();
         try {
-            resp = adminService.rejectImage(galleryId);
+            String reason = body != null ? body.get("reason") : null;
+            resp = adminService.rejectImage(galleryId, reason);
         } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Something Went Wrong. " + e.getMessage());

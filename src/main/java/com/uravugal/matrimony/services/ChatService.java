@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import com.uravugal.matrimony.dtos.ResultResponse;
 import com.uravugal.matrimony.enums.ActiveStatus;
 import com.uravugal.matrimony.enums.ResponseStatus;
+import com.uravugal.matrimony.enums.SubscriptionStatus;
 import com.uravugal.matrimony.models.ChatEntity;
 import com.uravugal.matrimony.models.Conversation;
 import com.uravugal.matrimony.models.Features;
@@ -75,8 +76,15 @@ public class ChatService {
             }
 
             // Plan gate: check MESSAGE feature
+            // findTopByUserIdOrderByCreatedAtDesc picks whichever subscription row was CREATED
+            // most recently, regardless of its status — a user whose subscription was renewed
+            // via an UPDATE to an older row (keeping its original createdAt) while a newer,
+            // since-expired row exists (e.g. from the self-healing Free-plan fallback) would
+            // have their genuinely active plan shadowed by the stale newer-but-inactive row.
+            // Look up the actual ACTIVE subscription instead.
             UserSubscriptions senderSub = userSubscriptionsRepository
-                    .findTopByUserIdOrderByCreatedAtDesc(request.getSenderId());
+                    .findTopByUserIdAndStatusOrderByEndDateDesc(request.getSenderId(), SubscriptionStatus.ACTIVE)
+                    .orElse(null);
             if (senderSub == null || senderSub.getSubscriptionPlanId() == 1) {
                 // Free plan — no chat
                 response.setCode(403);
@@ -128,6 +136,17 @@ public class ChatService {
             Conversation conversation = conversationRepository.findById(request.getConversationId())
                 .orElseThrow(() -> new RuntimeException("Conversation not found"));
 
+            // getUserChatList now filters to isActive='Y' (needed for the new delete-conversation
+            // feature to actually hide anything). Since isActive is one shared flag on the
+            // conversation row rather than per-participant, deleting it currently hides it for
+            // BOTH sides — so a new message needs to revive it here, mirroring how WhatsApp
+            // brings a deleted chat back into your list the moment the other person messages
+            // you again, rather than leaving it hidden forever.
+            if (conversation.getIsActive() != ActiveStatus.Y) {
+                conversation.setIsActive(ActiveStatus.Y);
+                conversationRepository.save(conversation);
+            }
+
             ChatEntity chatMessage = new ChatEntity();
             chatMessage.setConversationId(conversation.getId());
             chatMessage.setSenderId(request.getSenderId());
@@ -156,12 +175,19 @@ public class ChatService {
                 notification.setTitle("New Message");
                 notificationRepository.save(notification);
 
-                // ✅ Send push notification
+                // ✅ Send push notification — off the request thread. This makes a real HTTP call
+                // to Expo's push API; running it synchronously here added that entire round-trip
+                // to every single message send (reported as ~3s to see a sent message appear —
+                // traced to this, not the DB write or the WebSocket push below).
                 String senderName = sender.getFirstName() + " " + sender.getLastName();
-                pushNotificationService.sendPushNotificationToUser(
-                        receiverId,
-                        "New Message",
-                        senderName + " sent you a message. Tap to read it now!");
+                final Long finalReceiverId = receiverId;
+                final String finalSenderName = senderName;
+                java.util.concurrent.CompletableFuture.runAsync(() ->
+                    pushNotificationService.sendPushNotificationToUser(
+                            finalReceiverId,
+                            "New Message",
+                            finalSenderName + " sent you a message. Tap to read it now!")
+                );
 
                 // ✅ Push message to recipient via WebSocket for real-time delivery
                 String wsMessage = String.format(
@@ -229,12 +255,33 @@ public class ChatService {
         return response;
     }
 
+    // Note: despite the parameter name, "senderId" here is actually the READER's own id — the
+    // repository query marks every message NOT sent by this user as read (i.e. "mark the other
+    // person's messages as read by me"). Kept as-is to match the existing repository method
+    // signature rather than renaming across call sites.
     public ResultResponse markMessagesAsRead(Long conversationId, Long senderId) {
         ResultResponse response = new ResultResponse();
         try {
             // Update messages as read
             Integer updatedCount = chatRepository.updateMessagesAsRead(conversationId, senderId);
-            
+
+            // Live read-receipt: previously this only updated the DB, so the ORIGINAL sender's
+            // tick (single grey -> double blue) never updated while both were actively chatting —
+            // it only refreshed on the next full re-fetch (e.g. leaving and re-opening the
+            // screen). Push a WS event to the original sender so their screen can refresh.
+            if (updatedCount != null && updatedCount > 0) {
+                Conversation convo = conversationRepository.findById(conversationId).orElse(null);
+                if (convo != null) {
+                    Long originalSenderId = convo.getUserOne().equals(senderId) ? convo.getUserTwo() : convo.getUserOne();
+                    String wsMessage = String.format(
+                        "{\"type\":\"message_read\",\"data\":{\"conversationId\":\"%d\",\"readByUserId\":\"%d\"}}",
+                        conversationId,
+                        senderId
+                    );
+                    UserWebSocketHandler.sendMessageToUser(originalSenderId, wsMessage);
+                }
+            }
+
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);
             response.setMessage("Messages marked as read successfully.");

@@ -20,4 +20,7 @@ public class MailboxUserDetail {
     private Boolean idVerified;
     private Boolean educationVerified;
     private Boolean incomeVerified;
+
+    // Interest request status for Sent tab display
+    private String acceptStatus;
 }

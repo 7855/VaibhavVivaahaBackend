@@ -1,6 +1,7 @@
 package com.uravugal.matrimony.services;
 
 import com.uravugal.matrimony.dtos.ResultResponse;
+import com.uravugal.matrimony.enums.ActiveStatus;
 import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.enums.SubscriptionStatus;
 import com.uravugal.matrimony.models.Features;
@@ -100,6 +101,28 @@ public class UserSubscriptionsService {
         return response;
     }
 
+    /**
+     * Returns the user's active subscription, auto-creating a Free-plan (planId=1) row if
+     * none exists. Protects accounts that never went through the real signup flow — e.g.
+     * bulk-seeded test data inserted directly into `users`/`user_details` — which would
+     * otherwise have no subscription row at all and silently bypass every quota check
+     * (usage tracking requires a subscriptionId to key against).
+     */
+    public UserSubscriptions ensureActiveSubscription(Long userId) {
+        List<UserSubscriptions> active = userSubscriptionsRepository
+                .findByUserIdAndStatus(userId, SubscriptionStatus.ACTIVE);
+        if (active != null && !active.isEmpty()) {
+            return active.get(0);
+        }
+        UserSubscriptions freeSub = new UserSubscriptions();
+        freeSub.setUserId(userId);
+        freeSub.setSubscriptionPlanId(1L);
+        freeSub.setStatus(SubscriptionStatus.ACTIVE);
+        freeSub.setStartDate(LocalDate.now());
+        freeSub.setAutoRenew(ActiveStatus.N);
+        return userSubscriptionsRepository.save(freeSub);
+    }
+
     public ResultResponse getActiveUserSubscriptionUserId(Long userId) {
         ResultResponse response = new ResultResponse();
         Map<String, Object> data = new HashMap<>();
@@ -113,18 +136,8 @@ public class UserSubscriptionsService {
                 return response;
             }
 
-            // 1. Get active subscription for the user
-            List<UserSubscriptions> userSubscriptions = userSubscriptionsRepository
-                    .findByUserIdAndStatus(userId, SubscriptionStatus.ACTIVE);
-
-            if (userSubscriptions == null || userSubscriptions.isEmpty()) {
-                response.setCode(404);
-                response.setMessage("No active subscription found for user");
-                response.setStatus(ResponseStatus.FAILURE);
-                return response;
-            }
-
-            UserSubscriptions userSubscription = userSubscriptions.get(0);
+            // 1. Get (or self-heal) the active subscription for the user
+            UserSubscriptions userSubscription = ensureActiveSubscription(userId);
 
             // 2. Fetch the subscription plan
             Optional<SubscriptionPlan> subscriptionPlanOpt = subscriptionPlanRepository

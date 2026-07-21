@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import com.uravugal.matrimony.dtos.ResultResponse;
@@ -149,8 +150,31 @@ public class PushNotificationService {
             deviceInfo.setAppVersion(appVersion);
             deviceInfo.setOsVersion(osVersion);
             deviceInfo.setUpdatedAt(new Date());
-            
-            pushNotificationRepository.save(deviceInfo);
+
+            try {
+                pushNotificationRepository.save(deviceInfo);
+            } catch (DataIntegrityViolationException dup) {
+                // fcmToken has a DB-level unique constraint. Two near-simultaneous save calls for
+                // the same brand-new token (e.g. app registers push token on more than one screen
+                // mount at once) can both pass the findByFcmToken check above as empty before
+                // either has committed — a classic check-then-act race. Whichever request lost the
+                // race re-fetches the row the winner just inserted and updates that instead, so the
+                // client still gets a clean success rather than a raw constraint-violation error.
+                Optional<UserDeviceInformation> winner = pushNotificationRepository.findByFcmToken(token);
+                if (winner.isPresent()) {
+                    UserDeviceInformation winningRow = winner.get();
+                    winningRow.setUserId(userId);
+                    winningRow.setDeviceId(deviceId);
+                    winningRow.setDeviceType(deviceType);
+                    winningRow.setDeviceModel(deviceModel);
+                    winningRow.setAppVersion(appVersion);
+                    winningRow.setOsVersion(osVersion);
+                    winningRow.setUpdatedAt(new Date());
+                    pushNotificationRepository.save(winningRow);
+                } else {
+                    throw dup;
+                }
+            }
 
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);

@@ -11,4 +11,6 @@ public class EducationInfoRequest {
     private String occupation;
     private String employedAt;
     private String annualIncome;
+    private String jobPlace;
+    private String educationInDetail;
 }

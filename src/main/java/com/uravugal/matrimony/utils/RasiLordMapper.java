@@ -21,6 +21,16 @@ public final class RasiLordMapper {
         rasiToLord.put("magaram", Planet.SATURN);  rasiToLord.put("capricorn", Planet.SATURN);
         rasiToLord.put("kumbam", Planet.SATURN);   rasiToLord.put("aquarius", Planet.SATURN);
         rasiToLord.put("meenam", Planet.JUPITER);  rasiToLord.put("pisces", Planet.JUPITER);
+
+        // Aliases: StarMatch.tsx's rasiData list ships these alternate Tamil transliterations
+        // ("Kadagam", "Simmam", "Viruchagam", "Makaram") for Cancer/Leo/Scorpio/Capricorn instead
+        // of the spellings above — without these, ~1/3 of real submissions silently failed to
+        // resolve a lord at all (getLordFromRasi returned null, and PoruthamService's own
+        // mapRasiNameToIndex had the same gap), zeroing out Rasi Adhipathi/Vasya for those users.
+        rasiToLord.put("kadagam", Planet.MOON);
+        rasiToLord.put("simmam", Planet.SUN);
+        rasiToLord.put("viruchagam", Planet.MARS);
+        rasiToLord.put("makaram", Planet.SATURN);
     }
 
     private RasiLordMapper() {}

@@ -148,8 +148,43 @@ public ResultResponse updatePersonalInfo(PersonalInfoRequest request) {
         System.out.println("Updating user information");
         user.setFirstName(request.getFirstName());
         user.setLastName(request.getLastName());
-        // user.setDob(LocalDate.parse(request.getDateOfBirth()));
-        
+        // Was dead-commented — dob edits from the profile screen never persisted regardless of
+        // what the frontend sent. Also recompute the stored `age` string alongside it (mirrors
+        // every other service that touches dob — see CLAUDE.md's landmine on `age` drifting
+        // when it isn't kept in sync with dob).
+        //
+        // The mobile app already blocks future dates and under-18 dates client-side (see
+        // editProfileModal.tsx / sign-up.tsx), but this endpoint is a real system boundary —
+        // anyone calling it directly bypasses that check entirely. Re-validate here and reject
+        // the whole request rather than silently dropping just the dob field, so a client never
+        // sees a 200 "success" that quietly didn't do what it asked.
+        if (request.getDateOfBirth() != null && !request.getDateOfBirth().isBlank()) {
+            java.time.LocalDate parsedDob;
+            try {
+                parsedDob = java.time.LocalDate.parse(request.getDateOfBirth());
+            } catch (Exception e) {
+                resp.setCode(400);
+                resp.setStatus(ResponseStatus.FAILURE);
+                resp.setMessage("Invalid date of birth format (expected yyyy-MM-dd)");
+                return resp;
+            }
+            if (parsedDob.isAfter(java.time.LocalDate.now())) {
+                resp.setCode(400);
+                resp.setStatus(ResponseStatus.FAILURE);
+                resp.setMessage("Date of birth cannot be a future date");
+                return resp;
+            }
+            int computedAge = java.time.Period.between(parsedDob, java.time.LocalDate.now()).getYears();
+            if (computedAge < 18) {
+                resp.setCode(400);
+                resp.setStatus(ResponseStatus.FAILURE);
+                resp.setMessage("You must be at least 18 years old");
+                return resp;
+            }
+            user.setDob(parsedDob);
+            user.setAge(String.valueOf(computedAge));
+        }
+
         // Save user first
         user = userRepository.save(user);
         System.out.println("User saved successfully: " + user);
@@ -169,7 +204,11 @@ public ResultResponse updatePersonalInfo(PersonalInfoRequest request) {
         userDetail.setBasicInfo(objectMapper.writeValueAsString(basicInfo));
         userDetail.setHeight(request.getHeight());
         userDetail.setWeight(request.getWeight());
-        
+        // presentAddress = "Current Address"; permanentAddress was an unused column, now
+        // reused to store "Native Place" instead of adding a new column for it.
+        userDetail.setPresentAddress(request.getCurrentAddress());
+        userDetail.setPermanentAddress(request.getNativePlace());
+
         // Save user detail
         userDetail = userDetailRepository.save(userDetail);
         System.out.println("User detail saved successfully: " + userDetail);
@@ -208,14 +247,21 @@ public ResultResponse updatePersonalInfo(PersonalInfoRequest request) {
             // Update education fields
             userDetail.setDegree(request.getEducation());
             userDetail.setOccupation(request.getOccupation());
-            
-            // Convert string to EmploymentType
-            EmploymentType employmentType = EmploymentType.valueOf(request.getEmployedAt().toUpperCase());
-            userDetail.setEmployedAt(employmentType);
-            
+
+            // Convert string to EmploymentType — guarded since this section can now be saved
+            // independently of signup (e.g. a user filling in Job Place/Annual Income later
+            // without resending Employment Status), where an unguarded valueOf() would throw.
+            if (request.getEmployedAt() != null && !request.getEmployedAt().isBlank()) {
+                EmploymentType employmentType = EmploymentType.valueOf(request.getEmployedAt().toUpperCase());
+                userDetail.setEmployedAt(employmentType);
+            }
+
             // Convert string to integer for annual income
             String annualIncome = request.getAnnualIncome();
             userDetail.setAnnualIncome(annualIncome);
+
+            userDetail.setJobPlace(request.getJobPlace());
+            userDetail.setEducationInDetail(request.getEducationInDetail());
 
             userDetailRepository.save(userDetail);
             
@@ -529,7 +575,11 @@ List<String> requiredFields = new ArrayList<>(Arrays.asList(
     "moonSign", "dosham", "maritalStatus", "motherLanguage",
     "familyType", "familyStatus", "numberOfSiblings",
     "noOfBrothers", "noOfSisters", "brotherMarried", "sisterMarried",
-    "hobbies"
+    "hobbies",
+    // Moved out of required signup fields (see sign-up.tsx) — now tracked here instead so
+    // the completion % and "next action" nudge steer users to fill them in post-signup.
+    "jobPlace", "educationInDetail", "annualIncome", "currentAddress", "nativePlace",
+    "fatherName", "fatherOccupation", "motherName", "motherOccupation"
 ));
 
 int totalFields = requiredFields.size();
@@ -557,6 +607,26 @@ int totalFields = requiredFields.size();
             missingFields.remove("horoscope");
         } else {
             nextActions.put("HOROSCOPE", createAction("Add Horoscope", "Improves match accuracy", 15, "/(root)/(tabs)/profile"));
+        }
+
+        // Fields moved out of required signup (Job Place, Education in Detail, Annual Income,
+        // Current Address, Native Place) — plain UserDetailEntity columns, same has-value check
+        // style as height/weight above.
+        boolean hasJobPlace = hasText(userDetails.getJobPlace());
+        boolean hasEducationInDetail = hasText(userDetails.getEducationInDetail());
+        boolean hasAnnualIncome = hasText(userDetails.getAnnualIncome());
+        boolean hasCurrentAddress = hasText(userDetails.getPresentAddress());
+        boolean hasNativePlace = hasText(userDetails.getPermanentAddress());
+        if (hasJobPlace) { completedFields.incrementAndGet(); missingFields.remove("jobPlace"); }
+        if (hasEducationInDetail) { completedFields.incrementAndGet(); missingFields.remove("educationInDetail"); }
+        if (hasAnnualIncome) { completedFields.incrementAndGet(); missingFields.remove("annualIncome"); }
+        if (hasCurrentAddress) { completedFields.incrementAndGet(); missingFields.remove("currentAddress"); }
+        if (hasNativePlace) { completedFields.incrementAndGet(); missingFields.remove("nativePlace"); }
+        if (!hasJobPlace || !hasEducationInDetail || !hasAnnualIncome) {
+            nextActions.put("WORK_INCOME", createAction("Add Work & Income Details", "Show your job, education & income", 10, "/(root)/(tabs)/profile"));
+        }
+        if (!hasCurrentAddress || !hasNativePlace) {
+            nextActions.put("ADDRESS", createAction("Add Address Details", "Help matches know where you're from", 10, "/(root)/(tabs)/profile"));
         }
 
         System.out.println("userDetails.getFamilyInfo()"+userDetails.getFamilyInfo());
@@ -618,6 +688,17 @@ if (familyInfo != null && familyInfo.isArray() && familyInfo.size() > 0) {
     checkField(firstFamily, "no_of_sister", "noOfSisters", missingFields, completedFields::incrementAndGet);
     checkField(firstFamily, "brother_married", "brotherMarried", missingFields, completedFields::incrementAndGet);
     checkField(firstFamily, "sister_married", "sisterMarried", missingFields, completedFields::incrementAndGet);
+
+    // Moved out of required signup — now tracked here instead.
+    checkField(firstFamily, "father", "fatherName", missingFields, completedFields::incrementAndGet);
+    checkField(firstFamily, "father_occupation", "fatherOccupation", missingFields, completedFields::incrementAndGet);
+    checkField(firstFamily, "mother", "motherName", missingFields, completedFields::incrementAndGet);
+    checkField(firstFamily, "mother_occupation", "motherOccupation", missingFields, completedFields::incrementAndGet);
+    boolean missingFamilyDetail = missingFields.stream().anyMatch(f ->
+        f.equals("fatherName") || f.equals("fatherOccupation") || f.equals("motherName") || f.equals("motherOccupation"));
+    if (missingFamilyDetail) {
+        nextActions.put("FAMILY_DETAILS", createAction("Add Family Details", "Help matches learn about your family", 10, "/(root)/(tabs)/profile"));
+    }
 }
 
         // Check hobbies/interests
@@ -700,6 +781,15 @@ private Map<String, Object> createAction(String title, String description, int b
     action.put("boostPercentage", boost);
     action.put("route", route);
     return action;
+}
+
+// Same "has a real value" check already used inline for height/weight, extracted since
+// several more plain-column fields (jobPlace, educationInDetail, annualIncome, addresses)
+// now need the identical check.
+private boolean hasText(String value) {
+    if (value == null) return false;
+    String trimmed = value.trim();
+    return !trimmed.isEmpty() && !trimmed.equals("-") && !trimmed.equalsIgnoreCase("Not specified");
 }
 
 // Helper method to safely parse JSON

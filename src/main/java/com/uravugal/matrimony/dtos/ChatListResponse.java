@@ -21,4 +21,8 @@ public class ChatListResponse {
     private Boolean idVerified;
     private Boolean educationVerified;
     private Boolean incomeVerified;
+
+    // Used for the gendered default-avatar fallback (avatarMen/avatarWomen) when profileImage
+    // is null — same convention already used elsewhere in the app (search results, notifications).
+    private String gender;
 }

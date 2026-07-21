@@ -1,6 +1,7 @@
 package com.uravugal.matrimony.repositories;
 
 import com.uravugal.matrimony.enums.ActiveStatus;
+import com.uravugal.matrimony.enums.ApprovalStatus;
 import com.uravugal.matrimony.models.RestrictedFieldRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -13,7 +14,7 @@ public interface RestrictedFieldRequestRepository extends JpaRepository<Restrict
     // Page<RestrictedFieldRequest> findByRequestedToAndIsActive(Long userId, boolean isActive, Pageable pageable);
     // Page<RestrictedFieldRequest> findByRequestedByAndIsActive(Long userId, boolean isActive, Pageable pageable);
     Page<RestrictedFieldRequest> findByRequestedByAndRequestedToAndFieldType(Long requestedBy, Long requestedTo, String fieldType, Pageable pageable);
-    
+
     List<RestrictedFieldRequest> findByRequestedToAndIsActive(Long userId, ActiveStatus isActive);
     List<RestrictedFieldRequest> findByRequestedByAndIsActive(Long userId, ActiveStatus isActive);
     boolean existsByRequestedByAndRequestedToAndFieldType(Long requestedBy, Long requestedTo, String fieldType);
@@ -25,4 +26,9 @@ public interface RestrictedFieldRequestRepository extends JpaRepository<Restrict
             ActiveStatus y);
 
     Page<RestrictedFieldRequest> findByFieldType(String fieldType, Pageable pageable);
+
+    // Admin listing (adminpanel /requests/mobile|images|horoscopes) — filtered combinations.
+    Page<RestrictedFieldRequest> findByFieldTypeAndStatus(String fieldType, ApprovalStatus status, Pageable pageable);
+    Page<RestrictedFieldRequest> findByStatus(ApprovalStatus status, Pageable pageable);
+    Page<RestrictedFieldRequest> findAllByOrderByIdDesc(Pageable pageable);
 }

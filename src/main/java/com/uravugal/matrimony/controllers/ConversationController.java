@@ -47,6 +47,19 @@ public class ConversationController {
         return response;
     }
 
+    @GetMapping("/getByUsers/{userOneId}/{userTwoId}")
+    public ResultResponse getConversationByUsers(@PathVariable Long userOneId, @PathVariable Long userTwoId) {
+        ResultResponse response = new ResultResponse();
+        try {
+            response = conversationService.getConversationByUsers(userOneId, userTwoId);
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setMessage("Something Went Wrong. " + e.getMessage());
+            response.setStatus(ResponseStatus.FAILURE);
+        }
+        return response;
+    }
+
     @GetMapping("/getConversationStatus/{conversationId}")
     public ResultResponse getConversationStatus(@PathVariable Long conversationId) {
         ResultResponse response = new ResultResponse();

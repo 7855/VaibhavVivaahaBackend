@@ -47,11 +47,12 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
             END AS profileImage,
             CASE WHEN c.user_one_id = :userId THEN COALESCE(u2.id_verified, FALSE) ELSE COALESCE(u1.id_verified, FALSE) END AS idVerified,
             CASE WHEN c.user_one_id = :userId THEN COALESCE(u2.education_verified, FALSE) ELSE COALESCE(u1.education_verified, FALSE) END AS educationVerified,
-            CASE WHEN c.user_one_id = :userId THEN COALESCE(u2.income_verified, FALSE) ELSE COALESCE(u1.income_verified, FALSE) END AS incomeVerified
+            CASE WHEN c.user_one_id = :userId THEN COALESCE(u2.income_verified, FALSE) ELSE COALESCE(u1.income_verified, FALSE) END AS incomeVerified,
+            CASE WHEN c.user_one_id = :userId THEN u2.gender ELSE u1.gender END AS gender
         FROM conversations c
         JOIN users u1 ON c.user_one_id = u1.userId
         JOIN users u2 ON c.user_two_id = u2.userId
-        WHERE (:userId = c.user_one_id OR :userId = c.user_two_id)
+        WHERE (:userId = c.user_one_id OR :userId = c.user_two_id) AND c.isActive = 'Y'
         ORDER BY lastMessageTime DESC
     """, nativeQuery = true)
     List<Object[]> getUserChatList(@Param("userId") Long userId);

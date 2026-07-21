@@ -1,8 +1,11 @@
 package com.uravugal.matrimony.controllers;
 
+import com.uravugal.matrimony.dtos.PaginatedResultResponse;
 import com.uravugal.matrimony.dtos.ResultResponse;
 import com.uravugal.matrimony.enums.ApprovalStatus;
 import com.uravugal.matrimony.services.RestrictedFieldRequestService;
+
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -54,5 +57,24 @@ public class RestrictedFieldRequestController {
             @PathVariable Long requestTo) {
         return restrictedFieldRequestService.getRequestsToIds(requestBy, requestTo);
     }
-    
+
+    // Admin endpoints — adminpanel's /requests/mobile|images|horoscopes pages.
+    // fieldType: "MOBILE" | "PROFILE_IMAGE" | "HOROSCOPE" | "STAR_DETAILS". status: "PENDING" | "APPROVED" | "REJECTED".
+    @GetMapping("/admin/list")
+    public PaginatedResultResponse adminList(
+            @RequestParam(required = false) String fieldType,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") Integer page,
+            @RequestParam(defaultValue = "20") Integer size) {
+        return restrictedFieldRequestService.adminListRequests(fieldType, status, page, size);
+    }
+
+    @PostMapping("/admin/{id}/status")
+    public ResultResponse adminUpdateStatus(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body) {
+        String status = (String) body.get("status");
+        return restrictedFieldRequestService.adminUpdateStatus(id, status);
+    }
+
 }

@@ -17,4 +17,6 @@ public class PersonalInfoRequest {
     private String motherLanguage;
     private String placeOfBirth;
     private String numberOfChildren;
+    private String currentAddress;
+    private String nativePlace;
 }

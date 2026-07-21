@@ -74,8 +74,8 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
               AND u.isUser != 'ADM'
               AND (:gender IS NULL OR u.gender = :gender)
               AND (:casteId IS NULL OR u.casteId = :casteId)
-              AND (:minAge IS NULL OR CAST(u.age AS UNSIGNED) >= :minAge)
-              AND (:maxAge IS NULL OR CAST(u.age AS UNSIGNED) <= :maxAge)
+              AND (:minAge IS NULL OR TIMESTAMPDIFF(YEAR, u.dob, CURDATE()) >= :minAge)
+              AND (:maxAge IS NULL OR TIMESTAMPDIFF(YEAR, u.dob, CURDATE()) <= :maxAge)
               AND (
                    (:minAnnualIncome IS NULL AND :maxAnnualIncome IS NULL)
                 OR (:minAnnualIncome IS NOT NULL AND :maxAnnualIncome IS NULL
@@ -196,9 +196,10 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
               AND u.isUser != 'ADM'
               AND (:gender IS NULL OR u.gender = :gender)
               AND (:casteId IS NULL OR u.casteId = :casteId)
-              AND (:minAge IS NULL OR CAST(u.age AS UNSIGNED) >= :minAge)
-              AND (:maxAge IS NULL OR CAST(u.age AS UNSIGNED) <= :maxAge)
+              AND (:minAge IS NULL OR TIMESTAMPDIFF(YEAR, u.dob, CURDATE()) >= :minAge)
+              AND (:maxAge IS NULL OR TIMESTAMPDIFF(YEAR, u.dob, CURDATE()) <= :maxAge)
               AND (:location IS NULL OR u.location = :location)
+              AND (COALESCE(:employedAt) IS NULL OR ud.employedAt IN (:employedAt))
               AND (
                     :profileImageStatus IS NULL
                     OR :profileImageStatus = 'N'
@@ -224,6 +225,7 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
             @Param("minAge") Integer minAge,
             @Param("maxAge") Integer maxAge,
             @Param("location") String location,
+            @Param("employedAt") List<String> employedAt,
             @Param("profileImageStatus") String profileImageStatus);
 
     Optional<UserEntity> findByMemberIdAndGenderAndCasteId(String memberId, Gender gender, Integer casteId);

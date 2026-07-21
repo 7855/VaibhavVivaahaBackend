@@ -291,8 +291,8 @@ public class InterestRequestService {
         try {
             String decodedId = new String(Base64.getDecoder().decode(encodedId));
             Long userId = Long.parseLong(decodedId);
-            Page<InterestRequest> requests = interestRequestRepository.findByInterestSendAndAcceptStatus(
-                userId, ApprovalStatus.PENDING,
+            Page<InterestRequest> requests = interestRequestRepository.findByInterestSend(
+                userId,
                 PageRequest.of(page != null ? page : 0, size != null ? size : 10)
             );
             
@@ -314,7 +314,7 @@ public class InterestRequestService {
                     MailboxUserDetail detail = new MailboxUserDetail();
                     UserEntity user = userRepository.findById(request.getInterestReceived()).orElse(null);
                     UserDetailEntity userDetail = userDetailRepository.findByUserId(request.getInterestReceived());
-                    
+
                     if (user != null) {
                         detail.setUserId(user.getUserId());
                         detail.setFirstName(user.getFirstName());
@@ -323,9 +323,9 @@ public class InterestRequestService {
                         detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
                         detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
                         detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
-                        
+
                         if (userDetail != null) {
-                            detail.setAge(user.getDob() != null ? 
+                            detail.setAge(user.getDob() != null ?
                                 (int) java.time.Period.between(user.getDob(), java.time.LocalDate.now()).getYears() : null);
                             detail.setDegree(userDetail.getDegree());
                             detail.setAnnualIncome(userDetail.getAnnualIncome());
@@ -333,9 +333,11 @@ public class InterestRequestService {
                             detail.setLocation(userDetail.getPresentAddress());
                         }
                         detail.setInterestId(request.getId());
+                        detail.setAcceptStatus(request.getAcceptStatus() != null ? request.getAcceptStatus().name() : "PENDING");
                     }
                     return detail;
                 })
+                .filter(detail -> detail.getUserId() != null)
                 .collect(Collectors.toList());
 
             resp.setCode(200);
@@ -468,7 +470,7 @@ public class InterestRequestService {
                 String acceptorName = acceptedBy != null
                     ? acceptedBy.getFirstName() + " " + acceptedBy.getLastName()
                     : "Someone";
-                pushNotificationService.sendPushNotificationToUser(
+                pushNotificationService.sendPushNotificationToUserDirect(
                     request.getInterestSend(),
                     "Interest Accepted! 🎉",
                     acceptorName + " accepted your interest request. Start chatting now!"
@@ -509,7 +511,27 @@ public class InterestRequestService {
                 return resp;
             }
 
+            Long sendId = request.getInterestSend();
+            Long recvId = request.getInterestReceived();
+
             interestRequestRepository.delete(request);
+
+            // Cancelling a sent interest used to leave its auto-created conversation behind
+            // (visible in the chat list with only the "I have liked your profile" system
+            // message, even though the request itself no longer shows as pending). Clean it up —
+            // but only when no real conversation ever happened on top of it; if either side sent
+            // an actual message, leave the conversation alone.
+            Long minId = Math.min(sendId, recvId);
+            Long maxId = Math.max(sendId, recvId);
+            Conversation convo = conversationRepository.findByUserOneAndUserTwo(minId, maxId);
+            if (convo != null) {
+                Long realMessageCount = chatRepository.countRealMessagesByConversationId(convo.getId());
+                if (realMessageCount == null || realMessageCount == 0) {
+                    chatRepository.deleteAll(chatRepository.findAllByConversationId(convo.getId()));
+                    conversationRepository.delete(convo);
+                }
+            }
+
             resp.setCode(200);
             resp.setMessage("Interest request deleted successfully");
             resp.setStatus(ResponseStatus.SUCCESS);
@@ -599,52 +621,84 @@ public class InterestRequestService {
     public ResultResponse createInterestRequest(InterestRequest request) {
         ResultResponse resp = new ResultResponse();
         try {
-            // Check if request already exists
-            boolean exists = interestRequestRepository.existsByInterestSendAndInterestReceived(
-                    request.getInterestSend(), request.getInterestReceived());
+            Long sendId = request.getInterestSend();
+            Long recvId = request.getInterestReceived();
 
-            if (exists) {
-                resp.setCode(400);
-                resp.setMessage("Interest request already exists");
-                resp.setStatus(ResponseStatus.FAILURE);
-                return resp;
+            // A DB-level unique constraint on (interestSend, interestReceived) means we can
+            // never insert a second row for this pair — a prior REJECTED row must be reused.
+            Optional<InterestRequest> existingOpt = interestRequestRepository
+                    .findByInterestSendAndInterestReceived(sendId, recvId);
+
+            InterestRequest savedRequest;
+            boolean isResend = false;
+
+            if (existingOpt.isPresent()) {
+                InterestRequest existing = existingOpt.get();
+                if (existing.getAcceptStatus() == ApprovalStatus.PENDING
+                        || existing.getAcceptStatus() == ApprovalStatus.APPROVED) {
+                    resp.setCode(400);
+                    resp.setMessage("Interest request already exists");
+                    resp.setStatus(ResponseStatus.FAILURE);
+                    return resp;
+                }
+                // Previously REJECTED — allow sending again by resetting the same row to PENDING
+                existing.setAcceptStatus(ApprovalStatus.PENDING);
+                savedRequest = interestRequestRepository.save(existing);
+                isResend = true;
+            } else {
+                request.setAcceptStatus(ApprovalStatus.PENDING);
+                savedRequest = interestRequestRepository.save(request);
             }
 
-            // Set default status to PENDING
-            request.setAcceptStatus(ApprovalStatus.PENDING);
-
-            InterestRequest savedRequest = interestRequestRepository.save(request);
-
-            pushNotificationService.sendPushNotificationToUser(request.getInterestReceived(), "You���ve Received an Interest", "The user expressed in your profile. Someone has expressed interest in your profile. Check now to see who it is!");
+            pushNotificationService.sendPushNotificationToUserDirect(recvId, "You've Received an Interest", "Someone has expressed interest in your profile. Check now to see who it is!");
             // Create notification for the receiver
             Notification notification = new Notification();
-            notification.setSenderId(request.getInterestSend());
-            notification.setReceiverId(request.getInterestReceived());
+            notification.setSenderId(sendId);
+            notification.setReceiverId(recvId);
             notification.setMessage("Expressed interest in your profile");
             notification.setNotificationCategory("INTEREST");
             notification.setTitle("Interest Expressed");
             notificationRepository.save(notification);
 
-            // Create conversation (normalize: smaller userId = userOne for bidirectional uniqueness)
-            Conversation conversation = new Conversation();
-            Long sendId = request.getInterestSend();
-            Long recvId = request.getInterestReceived();
-            conversation.setUserOne(Math.min(sendId, recvId));
-            conversation.setUserTwo(Math.max(sendId, recvId));
-            conversation.setStatus(ChatStatus.PENDING);
-            conversation.setInitiatedBy(sendId);
-            Conversation savedConversation = conversationRepository.save(conversation);
+            // Check for an existing conversation directly rather than trusting isResend —
+            // a conversation can outlive its InterestRequest row (e.g. the sender canceled/
+            // deleted the request via "Sent By You", which only deletes the InterestRequest,
+            // not the Conversation). A unique constraint on (userOne, userTwo) means a second
+            // INSERT for the same pair throws — so always check reality first.
+            Conversation existingConvo = conversationRepository.findByUserOneAndUserTwo(
+                    Math.min(sendId, recvId), Math.max(sendId, recvId));
 
-            // Create chat entity
-            ChatEntity chat = new ChatEntity();
-            chat.setConversationId(savedConversation.getId());
-            chat.setSenderId(request.getInterestSend());
-            chat.setMessage(
-                    "I have liked your profile. For further information discussion, please approve my request.");
-            chatRepository.save(chat);
+            if (existingConvo == null) {
+                // Create conversation (normalize: smaller userId = userOne for bidirectional uniqueness)
+                Conversation conversation = new Conversation();
+                conversation.setUserOne(Math.min(sendId, recvId));
+                conversation.setUserTwo(Math.max(sendId, recvId));
+                conversation.setStatus(ChatStatus.PENDING);
+                conversation.setInitiatedBy(sendId);
+                Conversation savedConversation = conversationRepository.save(conversation);
+
+                ChatEntity chat = new ChatEntity();
+                chat.setConversationId(savedConversation.getId());
+                chat.setSenderId(sendId);
+                chat.setMessage(
+                        "I have liked your profile. For further information discussion, please approve my request.");
+                chatRepository.save(chat);
+            } else {
+                // Conversation already exists from an earlier send — reuse it instead of
+                // creating a duplicate.
+                existingConvo.setStatus(ChatStatus.PENDING);
+                conversationRepository.save(existingConvo);
+
+                ChatEntity chat = new ChatEntity();
+                chat.setConversationId(existingConvo.getId());
+                chat.setSenderId(sendId);
+                chat.setMessage(
+                        "I have liked your profile again. For further information discussion, please approve my request.");
+                chatRepository.save(chat);
+            }
 
             resp.setCode(201);
-            resp.setMessage("Interest request created successfully");
+            resp.setMessage(isResend ? "Interest request re-sent successfully" : "Interest request created successfully");
             resp.setStatus(ResponseStatus.SUCCESS);
             resp.setData(savedRequest);
         } catch (Exception e) {
@@ -675,52 +729,50 @@ public class InterestRequestService {
             for (InterestRequest request : receivedRequests) {
                 MailboxUserDetail detail = new MailboxUserDetail();
                 UserEntity user = userRepository.findById(request.getInterestSend()).orElse(null);
+                if (user == null) continue;
                 UserDetailEntity userDetail = userDetailRepository.findByUserId(request.getInterestSend());
-                
-                if (user != null && userDetail != null) {
-                    detail.setUserId(user.getUserId());
-                    detail.setFirstName(user.getFirstName());
-                    detail.setLastName(user.getLastName());
-                    detail.setProfileImage(user.getProfileImage());
-                    detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
-                    detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
-                    detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
-                    
-                    detail.setAge(user.getDob() != null ? 
-                        (int) java.time.Period.between(user.getDob(), java.time.LocalDate.now()).getYears() : null);
+
+                detail.setUserId(user.getUserId());
+                detail.setFirstName(user.getFirstName());
+                detail.setLastName(user.getLastName());
+                detail.setProfileImage(user.getProfileImage());
+                detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
+                detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
+                detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
+                detail.setAge(user.getDob() != null ?
+                    (int) java.time.Period.between(user.getDob(), java.time.LocalDate.now()).getYears() : null);
+                if (userDetail != null) {
                     detail.setDegree(userDetail.getDegree());
                     detail.setAnnualIncome(userDetail.getAnnualIncome());
                     detail.setOccupation(userDetail.getOccupation());
                     detail.setLocation(userDetail.getPresentAddress());
-                    
-                    userDetails.add(detail);
                 }
+                userDetails.add(detail);
             }
 
             // Add sent requests
             for (InterestRequest request : sentRequests) {
                 MailboxUserDetail detail = new MailboxUserDetail();
                 UserEntity user = userRepository.findById(request.getInterestReceived()).orElse(null);
+                if (user == null) continue;
                 UserDetailEntity userDetail = userDetailRepository.findByUserId(request.getInterestReceived());
-                
-                if (user != null && userDetail != null) {
-                    detail.setUserId(user.getUserId());
-                    detail.setFirstName(user.getFirstName());
-                    detail.setLastName(user.getLastName());
-                    detail.setProfileImage(user.getProfileImage());
-                    detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
-                    detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
-                    detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
-                    
-                    detail.setAge(user.getDob() != null ? 
-                        (int) java.time.Period.between(user.getDob(), java.time.LocalDate.now()).getYears() : null);
+
+                detail.setUserId(user.getUserId());
+                detail.setFirstName(user.getFirstName());
+                detail.setLastName(user.getLastName());
+                detail.setProfileImage(user.getProfileImage());
+                detail.setIdVerified(Boolean.TRUE.equals(user.getIdVerified()));
+                detail.setEducationVerified(Boolean.TRUE.equals(user.getEducationVerified()));
+                detail.setIncomeVerified(Boolean.TRUE.equals(user.getIncomeVerified()));
+                detail.setAge(user.getDob() != null ?
+                    (int) java.time.Period.between(user.getDob(), java.time.LocalDate.now()).getYears() : null);
+                if (userDetail != null) {
                     detail.setDegree(userDetail.getDegree());
                     detail.setAnnualIncome(userDetail.getAnnualIncome());
                     detail.setOccupation(userDetail.getOccupation());
                     detail.setLocation(userDetail.getPresentAddress());
-                    
-                    userDetails.add(detail);
                 }
+                userDetails.add(detail);
             }
 
             response.setCode(200);
@@ -826,7 +878,7 @@ public class InterestRequestService {
         interestRequestRepository.save(request);
 
         // 5️⃣ Push notification
-        pushNotificationService.sendPushNotificationToUser(
+        pushNotificationService.sendPushNotificationToUserDirect(
                 receiverId,
                 "You’ve Received an Interest",
                 "Someone has expressed interest in your profile"

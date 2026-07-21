@@ -50,6 +50,13 @@ public class BoostController {
         return boostService.adminGrantCredits(userId, credits);
     }
 
+    /** Admin: instantly activate a 24h boost for a user, bypassing subscription/credits entirely. */
+    @PostMapping("/admin/activate")
+    public ResultResponse adminActivate(@RequestBody Map<String, Object> body) {
+        Long userId = body.get("userId") != null ? Long.parseLong(body.get("userId").toString()) : null;
+        return boostService.adminActivateBoost(userId);
+    }
+
     /** Admin: revoke (expire) an active boost immediately. */
     @PostMapping("/admin/revoke/{boostId}")
     public ResultResponse adminRevoke(@PathVariable Long boostId) {

@@ -39,7 +39,18 @@ public class UserWebSocketHandler extends TextWebSocketHandler {
         if (userId != null) {
             userSessions.remove(userId);
             System.out.println("🔴 WebSocket disconnected for user: " + userId + " (total: " + userSessions.size() + ")");
-            userService.updateLastSeen(userId, false);
+            try {
+                userService.updateLastSeen(userId, false);
+            } catch (Exception e) {
+                // Tomcat force-closes every open WebSocket session as part of app shutdown
+                // (server stop/restart), which fires this handler AFTER the Spring context has
+                // already started closing. Any bean/JPA lookup at that point fails — surfaces as
+                // ConfigurationPropertiesBindException wrapping an IllegalStateException
+                // ("...has been closed already"), not the IllegalStateException directly, so this
+                // must catch broadly. Harmless (the app is going down anyway); just don't let it
+                // spam the shutdown log with a huge stack trace.
+                System.out.println("⚠️ Skipped updateLastSeen for user " + userId + " during shutdown: " + e.getMessage());
+            }
         }
     }
 

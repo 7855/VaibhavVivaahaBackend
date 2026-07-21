@@ -24,6 +24,7 @@ import com.uravugal.matrimony.repositories.PlanFeaturesRepository;
 import com.uravugal.matrimony.repositories.UserFeatureUsageRepository;
 import com.uravugal.matrimony.repositories.UserSubscriptionsRepository;
 import com.uravugal.matrimony.services.UserFeatureUsageService;
+import com.uravugal.matrimony.services.UserSubscriptionsService;
 
 @RestController
 @RequestMapping("/userFeatureUsage")
@@ -44,6 +45,9 @@ public class UserFeatureUsageController {
     @Autowired
     private UserFeatureUsageRepository userFeatureUsageRepository;
 
+    @Autowired
+    private UserSubscriptionsService userSubscriptionsService;
+
     @PostMapping("/updateUsedCount/{userId}/{subscriptionId}/{featureId}")
     public ResultResponse updateUsedCount(@PathVariable Long userId, @PathVariable Long subscriptionId, @PathVariable Long featureId) {
         ResultResponse response = new ResultResponse();
@@ -63,14 +67,9 @@ public class UserFeatureUsageController {
         try {
             Long userId = Long.parseLong(new String(Base64.getDecoder().decode(encodedUserId)));
 
-            java.util.List<UserSubscriptions> subs = userSubscriptionsRepository.findByUserIdAndStatus(userId, SubscriptionStatus.ACTIVE);
-            if (subs.isEmpty()) {
-                // Free user with no active subscription row — check plan 1 features
-                UserSubscriptions freeSub = userSubscriptionsRepository.findTopByUserIdOrderByCreatedAtDesc(userId);
-                if (freeSub != null) {
-                    subs = java.util.List.of(freeSub);
-                }
-            }
+            // Self-heals: auto-creates a Free-plan row if this user has none (e.g. bulk-seeded
+            // test accounts that never went through the real signup flow).
+            UserSubscriptions sub = userSubscriptionsService.ensureActiveSubscription(userId);
 
             Features sendRequestFeature = featuresRepository.findByCode("SEND_REQUEST");
             if (sendRequestFeature == null) {
@@ -82,14 +81,8 @@ public class UserFeatureUsageController {
 
             Map<String, Object> data = new HashMap<>();
 
-            // Determine the plan ID: from active subscription or default to Free (plan 1)
-            Long planId = 1L; // Free plan default
-            Long subId = null;
-            if (!subs.isEmpty()) {
-                UserSubscriptions sub = subs.get(0);
-                planId = sub.getSubscriptionPlanId();
-                subId = sub.getId();
-            }
+            Long planId = sub.getSubscriptionPlanId();
+            Long subId = sub.getId();
 
             {
                 PlanFeatures pf = planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(

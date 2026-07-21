@@ -26,7 +26,7 @@ public class BlockedUserService {
             // Fetch all rows where THIS user is the blocker
             org.springframework.data.domain.Page<BlockedUser> page = blockedUserRepository
                     .findByBlockedByUserIdOrderByBlockedAtDesc(
-                            String.valueOf(userId),
+                            userId,
                             org.springframework.data.domain.PageRequest.of(0, 100));
             java.util.List<java.util.Map<String, Object>> out = new java.util.ArrayList<>();
             for (BlockedUser bu : page.getContent()) {

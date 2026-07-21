@@ -14,6 +14,7 @@ import com.uravugal.matrimony.repositories.PlanFeaturesRepository;
 import com.uravugal.matrimony.repositories.UserRepository;
 import com.uravugal.matrimony.repositories.UserSubscriptionsRepository;
 
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -248,11 +249,42 @@ public class FamilyLoginService {
         ResultResponse resp = new ResultResponse();
         try {
             List<FamilyLogin> rows = familyLoginRepository.findAllByOrderByIdDesc();
-            rows.forEach(r -> r.setPin(null));
+
+            // Enrich with the primary user's own name/mobile — the raw primaryUserId alone
+            // isn't enough for an admin to identify whose family login they're looking at.
+            List<Map<String, Object>> enriched = new ArrayList<>();
+            for (FamilyLogin r : rows) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("id", r.getId());
+                row.put("primaryUserId", r.getPrimaryUserId());
+                row.put("parentName", r.getParentName());
+                row.put("relationship", r.getRelationship());
+                row.put("mobile", r.getMobile());
+                row.put("email", r.getEmail());
+                row.put("status", r.getStatus());
+                row.put("lastLoginAt", r.getLastLoginAt());
+                row.put("createdAt", r.getCreatedAt());
+                // GenericEntity's @PreUpdate bumps updatedAt on every save, including the
+                // revoke() / adminRevoke() status flip — so this doubles as "revoked at"
+                // for REVOKED rows without needing a dedicated column.
+                row.put("updatedAt", r.getUpdatedAt());
+
+                try {
+                    UserEntity primary = userRepository.findById(r.getPrimaryUserId()).orElse(null);
+                    if (primary != null) {
+                        row.put("primaryUserName", ((primary.getFirstName() == null ? "" : primary.getFirstName()) + " " +
+                                (primary.getLastName() == null ? "" : primary.getLastName())).trim());
+                        row.put("primaryUserMobile", primary.getMobile());
+                    }
+                } catch (Exception ignored) {}
+
+                enriched.add(row);
+            }
+
             resp.setCode(200);
             resp.setStatus(ResponseStatus.SUCCESS);
             resp.setMessage("All family logins");
-            resp.setData(rows);
+            resp.setData(enriched);
         } catch (Exception e) {
             resp.setCode(500);
             resp.setStatus(ResponseStatus.FAILURE);

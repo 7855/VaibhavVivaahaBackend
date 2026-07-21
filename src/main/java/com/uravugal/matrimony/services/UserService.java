@@ -320,6 +320,23 @@ public class UserService {
             // Plan-based masking: VIEW_PERSONAL_INFO + SECURE_CONNECT
             // Own profile / null requesterId (internal call) → full data
             boolean isSelfOrInternal = (requesterId == null || requesterId.equals(viewedUserId));
+
+            // BLOCK GATE — this overload previously had none at all, unlike
+            // getProfileDetailWithIntractionStatus's equivalent check. Harmless while every
+            // caller only ever uses this for self-fetches (null/self requesterId), but any future
+            // caller passing a real cross-user requesterId would otherwise let a blocked pair
+            // view each other's profile through this path.
+            if (!isSelfOrInternal) {
+                com.uravugal.matrimony.models.BlockedUser block = blockedUserRepository
+                        .findByUsersEitherDirection(requesterId, viewedUserId);
+                if (block != null) {
+                    response.setCode(403);
+                    response.setStatus(ResponseStatus.FAILURE);
+                    response.setMessage("USER_BLOCKED");
+                    return response;
+                }
+            }
+
             boolean hasContactAccess = isSelfOrInternal;
             boolean isSecureConnect = false;
 
@@ -385,12 +402,17 @@ public class UserService {
         return response;
     }
 
-    public ResultResponse getUserDetailByCasteIdAndLocation(Integer casteId, Gender gender, String location) {
+    public ResultResponse getUserDetailByCasteIdAndLocation(Integer casteId, Gender gender, String location, Long requesterId) {
         ResultResponse response = new ResultResponse();
         try {
             List<UserEntity> users = userRepository.findAllByCasteIdAndGenderAndLocationAndIsActive(casteId, gender,
                     location,
                     ActiveStatus.Y);
+
+            if (requesterId != null) {
+                java.util.Set<Long> blockedIds = new java.util.HashSet<>(blockedUserRepository.findBlockAdjacentUserIds(requesterId));
+                users = users.stream().filter(u -> !blockedIds.contains(u.getUserId())).collect(java.util.stream.Collectors.toList());
+            }
 
             if (!users.isEmpty()) {
                 users = users.subList(0, Math.min(users.size(), 30));
@@ -411,11 +433,16 @@ public class UserService {
         return response;
     }
 
-    public ResultResponse getDailyShuffledUsersByCaste(Integer casteId, Gender gender) {
+    public ResultResponse getDailyShuffledUsersByCaste(Integer casteId, Gender gender, Long requesterId) {
         ResultResponse response = new ResultResponse();
         try {
             List<UserEntity> users = userRepository.findAllByCasteIdAndGenderAndIsActiveAndIsUserNot(casteId, gender,
                     ActiveStatus.Y, IsUser.ADM);
+
+            if (requesterId != null) {
+                java.util.Set<Long> blockedIds = new java.util.HashSet<>(blockedUserRepository.findBlockAdjacentUserIds(requesterId));
+                users = users.stream().filter(u -> !blockedIds.contains(u.getUserId())).collect(java.util.stream.Collectors.toList());
+            }
 
             if (!users.isEmpty()) {
                 // Shuffle deterministically based on date
@@ -441,11 +468,17 @@ public class UserService {
         return response;
     }
 
-    public ResultResponse getTop30NewUsers(Integer casteId, Gender gender) {
+    public ResultResponse getTop30NewUsers(Integer casteId, Gender gender, Long requesterId) {
         ResultResponse response = new ResultResponse();
         try {
             List<UserEntity> users = userRepository.findTop30ByCasteIdAndGenderAndIsActiveAndIsUserNotOrderByCreatedAtDesc(casteId,
                     gender, ActiveStatus.Y, IsUser.ADM);
+
+            if (requesterId != null) {
+                java.util.Set<Long> blockedIds = new java.util.HashSet<>(blockedUserRepository.findBlockAdjacentUserIds(requesterId));
+                users = users.stream().filter(u -> !blockedIds.contains(u.getUserId())).collect(java.util.stream.Collectors.toList());
+            }
+
             if (!users.isEmpty()) {
                 response.setCode(200);
                 response.setStatus(ResponseStatus.SUCCESS);
@@ -515,12 +548,17 @@ public class UserService {
         return response;
     }
 
-    public ResultResponse getTenShuffledUsers(Gender gender, Integer casteId) {
+    public ResultResponse getTenShuffledUsers(Gender gender, Integer casteId, Long requesterId) {
         ResultResponse response = new ResultResponse();
         try {
             // Get users filtered by gender and casteId
             List<UserEntity> users = userRepository.findAllByGenderAndCasteIdAndIsActiveOrderByRandom(gender, casteId,
                     ActiveStatus.Y);
+
+            if (requesterId != null) {
+                java.util.Set<Long> blockedIds = new java.util.HashSet<>(blockedUserRepository.findBlockAdjacentUserIds(requesterId));
+                users = users.stream().filter(u -> !blockedIds.contains(u.getUserId())).collect(java.util.stream.Collectors.toList());
+            }
 
             if (users.isEmpty()) {
                 response.setCode(404);
@@ -645,7 +683,10 @@ public class UserService {
                 );
 
             }
-            // 🔹 NORMAL USER
+            // 🔹 NORMAL USER — Job Sector was silently dropped here (no employedAt param at
+            // all), so a "Government" filter let every sector through. The frontend never
+            // gated Job Sector behind a premium check (unlike Education/City), so it's meant
+            // to be a basic-tier filter — added it to normalFilter instead of gating the UI.
             else {
                 users = userRepository.normalFilter(
                         "Y",
@@ -654,6 +695,7 @@ public class UserService {
                         minAge,
                         maxAge,
                         filterRequest.getLocation(),
+                        filterRequest.getEmployedAt(),
                         filterRequest.getProfileImageStatus()
                 );
             }
@@ -899,7 +941,9 @@ private Integer parseIntSafe(String val) {
             userDetail.setEducationInDetail(request.getEducationInDetail());
             userDetail.setOccupation(request.getOccupation());
             userDetail.setJobPlace(request.getJobPlace());
-            userDetail.setEmployedAt(EmploymentType.valueOf(request.getEmployingIn().toUpperCase()));
+            if (request.getEmployingIn() != null && !request.getEmployingIn().isBlank()) {
+                userDetail.setEmployedAt(EmploymentType.valueOf(request.getEmployingIn().toUpperCase()));
+            }
             userDetail.setAnnualIncome(request.getAnnualIncome());
             userDetail.setAbout(generateDefaultAbout(request));
 
@@ -1450,6 +1494,24 @@ private Integer parseIntSafe(String val) {
                 contactData.put("total", limit);
             }
 
+            // "Reveal Contact" now reveals horoscope in the same tap — one combined action
+            // instead of two separate, disconnected checks. This does NOT bypass horoscope's own
+            // access rules (plan must have HOROSCOPE_VIEW, and the interest between the two users
+            // must be APPROVED) — it only shows it if the viewer was already entitled to see it,
+            // just surfaced here alongside the contact info rather than only on a passive wait.
+            boolean horoscopeEligible = false;
+            Features horoscopeFeature = featuresRepository.findByCode("HOROSCOPE_VIEW");
+            if (horoscopeFeature != null && planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(horoscopeFeature.getId(), planId) != null) {
+                Optional<InterestRequest> interestOpt = interestRequestRepository.findBetweenUsers(viewerId, profileUserId);
+                horoscopeEligible = interestOpt.isPresent() && interestOpt.get().getAcceptStatus() == ApprovalStatus.APPROVED;
+            }
+            contactData.put("horoscopeEligible", horoscopeEligible);
+            if (horoscopeEligible) {
+                UserDetailEntity profileDetail = userDetailRepository.findByUserId(profileUserId);
+                String horoscope = profileDetail != null ? profileDetail.getHoroscope() : null;
+                contactData.put("horoscope", (horoscope != null && !horoscope.equals("null")) ? horoscope : null);
+            }
+
             response.setCode(200);
             response.setMessage("Contact revealed successfully");
             response.setData(contactData);
@@ -1457,6 +1519,127 @@ private Integer parseIntSafe(String val) {
         } catch (Exception e) {
             response.setCode(500);
             response.setMessage("Error: " + e.getMessage());
+            response.setStatus(ResponseStatus.FAILURE);
+        }
+        return response;
+    }
+
+    /**
+     * Read-only lookup of the current user's own VIEW_PERSONAL_INFO quota — same numbers
+     * revealContact tracks, but without spending a reveal or targeting any specific profile.
+     * Lets the Profile tab show "12 of 40 contact reveals used" proactively instead of the count
+     * only ever surfacing after already using one on some profile's Contact card.
+     */
+    public ResultResponse getContactRevealStatus(String viewerEncodedId) {
+        ResultResponse response = new ResultResponse();
+        try {
+            Long viewerId;
+            try {
+                viewerId = Long.parseLong(new String(Base64.getDecoder().decode(viewerEncodedId)));
+            } catch (Exception e) {
+                viewerId = Long.parseLong(viewerEncodedId);
+            }
+
+            Map<String, Object> status = new HashMap<>();
+
+            UserSubscriptions viewerSub = userSubscriptionRepository.findTopByUserIdOrderByCreatedAtDesc(viewerId);
+            Features personalInfo = featuresRepository.findByCode("VIEW_PERSONAL_INFO");
+            PlanFeatures pf = (viewerSub != null && personalInfo != null)
+                    ? planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(personalInfo.getId(), viewerSub.getSubscriptionPlanId())
+                    : null;
+
+            if (viewerSub == null || viewerSub.getSubscriptionPlanId() == 1L || pf == null) {
+                // Free plan, or current plan has no VIEW_PERSONAL_INFO row at all — nothing to show.
+                status.put("applicable", false);
+                response.setCode(200);
+                response.setStatus(ResponseStatus.SUCCESS);
+                response.setData(status);
+                return response;
+            }
+
+            String limitVal = pf.getLimitValue();
+            boolean isUnlimited = "enabled".equalsIgnoreCase(limitVal) || "unlimited".equalsIgnoreCase(limitVal);
+            status.put("applicable", true);
+            status.put("unlimited", isUnlimited);
+
+            if (!isUnlimited) {
+                int limit = Integer.parseInt(limitVal);
+                int used = userFeatureUsageRepository
+                        .findByUserIdAndSubscriptionIdAndFeatureId(viewerId, viewerSub.getId(), personalInfo.getId())
+                        .map(com.uravugal.matrimony.models.UserFeatureUsage::getUsedCount)
+                        .orElse(0);
+                status.put("used", used);
+                status.put("total", limit);
+                status.put("remaining", Math.max(0, limit - used));
+            }
+
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setData(status);
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setMessage("Error fetching contact reveal status: " + e.getMessage());
+            response.setStatus(ResponseStatus.FAILURE);
+        }
+        return response;
+    }
+
+    /**
+     * List of profiles whose contact info this viewer has revealed — lets the Profile tab's
+     * "Contact Reveals" card show who those reveals actually went to, not just a bare count.
+     */
+    public ResultResponse getRevealedContacts(String viewerEncodedId) {
+        ResultResponse response = new ResultResponse();
+        try {
+            Long viewerId;
+            try {
+                viewerId = Long.parseLong(new String(Base64.getDecoder().decode(viewerEncodedId)));
+            } catch (Exception e) {
+                viewerId = Long.parseLong(viewerEncodedId);
+            }
+
+            List<com.uravugal.matrimony.models.ContactReveal> reveals = contactRevealRepository
+                    .findByViewerIdOrderByCreatedAtDesc(viewerId);
+
+            List<com.uravugal.matrimony.dtos.RevealedContactDTO> result = new ArrayList<>();
+            for (com.uravugal.matrimony.models.ContactReveal reveal : reveals) {
+                UserEntity user = userRepository.findById(reveal.getRevealedUserId()).orElse(null);
+                if (user == null) continue;
+
+                com.uravugal.matrimony.dtos.RevealedContactDTO dto = new com.uravugal.matrimony.dtos.RevealedContactDTO();
+                dto.setUserId(user.getUserId());
+                dto.setMemberId(user.getMemberId());
+                dto.setFirstName(user.getFirstName());
+                dto.setLastName(user.getLastName());
+                dto.setGender(user.getGender() != null ? user.getGender().name() : null);
+                dto.setMobile(user.getMobile());
+                dto.setEmail(user.getEmail());
+                dto.setProfileImage(user.getProfileImage());
+                dto.setRevealedAt(reveal.getCreatedAt() != null
+                        ? java.sql.Timestamp.valueOf(reveal.getCreatedAt())
+                        : null);
+
+                if (user.getDob() != null) {
+                    dto.setAge((int) java.time.Period.between(user.getDob(), java.time.LocalDate.now()).getYears());
+                }
+                if (user.getUserDetail() != null && !user.getUserDetail().isEmpty()) {
+                    UserDetailEntity detail = user.getUserDetail().get(0);
+                    dto.setOccupation(detail.getOccupation());
+                    dto.setLocation(detail.getPresentAddress());
+                    dto.setDegree(detail.getDegree());
+                    dto.setAnnualIncome(detail.getAnnualIncome());
+                }
+
+                result.add(dto);
+            }
+
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage("Revealed contacts fetched successfully");
+            response.setData(result);
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setMessage("Error fetching revealed contacts: " + e.getMessage());
             response.setStatus(ResponseStatus.FAILURE);
         }
         return response;
@@ -1494,9 +1677,11 @@ private Integer parseIntSafe(String val) {
 
             // Filter: keep only profiles whose hobbies overlap with viewer's hobbies
             final java.util.Set<String> viewerHobbySet = new java.util.HashSet<>(viewerHobbies);
+            java.util.Set<Long> blockedIds = new java.util.HashSet<>(blockedUserRepository.findBlockAdjacentUserIds(viewerId));
             java.util.List<UserEntity> matched = new java.util.ArrayList<>();
             for (UserEntity u : allUsers) {
                 if (u.getUserId().equals(viewerId)) continue;
+                if (blockedIds.contains(u.getUserId())) continue;
                 UserDetailEntity ud = userDetailRepository.findByUserId(u.getUserId());
                 if (ud == null || ud.getHobbies() == null || ud.getHobbies().isBlank()) continue;
                 try {
@@ -1673,7 +1858,11 @@ private Integer parseIntSafe(String val) {
         }
 
         // ---------- PROFILE_VIEW_LIMIT GATE ----------
-        // Free=0, Starter=20, Classic=100, Silver/Gold/Platinum=unlimited (no row in plan_features)
+        // Only blocks when a plan's planFeatures row has limit_value > 0. Free and Starter are
+        // both seeded at 0 (= unlimited under this guard), and Classic/Silver/Gold/Platinum have
+        // no row at all (also unlimited) — every plan currently allows unlimited profile viewing,
+        // by design: this vertical typically lets free users browse freely and paywalls the
+        // valuable actions (contact reveal, chat, horoscope) instead. Confirmed 2026-07-09.
         if (!viewerUserId.equals(profileUserId)) {
             try {
                 UserSubscriptions vSub = userSubscriptionRepository

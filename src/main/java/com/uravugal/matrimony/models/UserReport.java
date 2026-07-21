@@ -21,6 +21,18 @@ public class UserReport extends GenericEntity {
     @Column(name = "reason", length = 1000)
     private String reason;
 
+    /** PROFILE (default) | MESSAGE — distinguishes a whole-profile report from a specific chat message */
+    @Column(name = "report_type", length = 20)
+    private String reportType = "PROFILE";
+
+    /** Set only for MESSAGE reports — the conversation message being reported */
+    @Column(name = "reported_message_id")
+    private Long reportedMessageId;
+
+    /** Snapshot of the message text at report time, in case the message is later deleted/edited */
+    @Column(name = "message_content", length = 1000)
+    private String messageContent;
+
     @Column(name = "reportedAt")
     private LocalDateTime reportedAt;
 
@@ -41,5 +53,6 @@ public class UserReport extends GenericEntity {
     protected void onCreate() {
         reportedAt = LocalDateTime.now();
         if (status == null) status = "PENDING";
+        if (reportType == null) reportType = "PROFILE";
     }
 }

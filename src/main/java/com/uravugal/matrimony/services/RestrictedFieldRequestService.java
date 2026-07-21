@@ -1,6 +1,7 @@
 package com.uravugal.matrimony.services;
 
 import com.uravugal.matrimony.dtos.PaginatedResultResponse;
+import com.uravugal.matrimony.dtos.PaginationData;
 import com.uravugal.matrimony.dtos.ResultResponse;
 import com.uravugal.matrimony.models.Notification;
 import com.uravugal.matrimony.models.RestrictedFieldRequest;
@@ -12,6 +13,8 @@ import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.repositories.NotificationRepository;
 import com.uravugal.matrimony.repositories.RestrictedFieldRequestRepository;
 import com.uravugal.matrimony.repositories.UserRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -160,27 +163,33 @@ public class RestrictedFieldRequestService {
     public ResultResponse sendRestrictedFieldRequest(Long requestedBy, Long requestedTo, String fieldType) {
         ResultResponse response = new ResultResponse();
         try {
-            // Check if request already exists
-            boolean exists = restrictedFieldRequestRepository.existsByRequestedByAndRequestedToAndFieldType(
-                requestedBy, requestedTo, fieldType
-            );
-            
-            if (exists) {
-                response.setCode(400);
-                response.setMessage("Request already exists");
-                response.setStatus(ResponseStatus.FAILURE);
-                return response;
-            }
+            // A DB-level unique constraint (if any) aside, existsByRequestedByAndRequestedToAndFieldType
+            // used to block ANY existing row regardless of status — so once the owner declined a
+            // request, that same requester could never ask again; every retry hit "Request already
+            // exists" forever. Mirrors the same fix already applied to InterestRequestService: reuse
+            // and reset a REJECTED row back to PENDING instead of permanently blocking on it.
+            RestrictedFieldRequest existing = restrictedFieldRequestRepository
+                    .findByRequestedByAndRequestedToAndFieldTypeAndIsActive(requestedBy, requestedTo, fieldType, ActiveStatus.Y);
 
-            // Create new restricted field request
-            RestrictedFieldRequest request = new RestrictedFieldRequest();
-            request.setRequestedBy(requestedBy);
-            request.setRequestedTo(requestedTo);
-            request.setFieldType(fieldType);
-            request.setStatus(ApprovalStatus.PENDING);
-            
-            // Save the request
-            RestrictedFieldRequest savedRequest = restrictedFieldRequestRepository.save(request);
+            RestrictedFieldRequest savedRequest;
+            if (existing != null) {
+                if (existing.getStatus() == ApprovalStatus.PENDING || existing.getStatus() == ApprovalStatus.APPROVED) {
+                    response.setCode(400);
+                    response.setMessage("Request already exists");
+                    response.setStatus(ResponseStatus.FAILURE);
+                    return response;
+                }
+                // Previously REJECTED — allow asking again by resetting the same row to PENDING
+                existing.setStatus(ApprovalStatus.PENDING);
+                savedRequest = restrictedFieldRequestRepository.save(existing);
+            } else {
+                RestrictedFieldRequest request = new RestrictedFieldRequest();
+                request.setRequestedBy(requestedBy);
+                request.setRequestedTo(requestedTo);
+                request.setFieldType(fieldType);
+                request.setStatus(ApprovalStatus.PENDING);
+                savedRequest = restrictedFieldRequestRepository.save(request);
+            }
 
             // Create notification for the receiver
             Notification notification = new Notification();
@@ -320,43 +329,140 @@ public class RestrictedFieldRequestService {
             byte[] decodedBytes = Base64.getDecoder().decode(encodedId);
             String decodedId = new String(decodedBytes);
             Long requestId = Long.parseLong(decodedId);
-            
-            // Find the restricted field request
+
             RestrictedFieldRequest request = restrictedFieldRequestRepository.findById(requestId)
                     .orElseThrow(() -> new RuntimeException("Restricted field request not found"));
-            
-            // Update the status
-            request.setStatus(status);
-            request = restrictedFieldRequestRepository.save(request);
-            
-           
-             if(status.toString().equals("APPROVED")){
-                UserEntity user = userRepository.findById(request.getRequestedBy()).orElse(null);
-                Notification notification = new Notification();
-                notification.setSenderId(request.getRequestedTo());
-                notification.setReceiverId(request.getRequestedBy());
-                notification.setMessage(user.getFirstName()+" "+user.getLastName() + " has accepted your request to view " + request.getFieldType());
-                notification.setNotificationCategory(request.getFieldType());
-                notification.setTitle("Permission Accepted");
-                notificationRepository.save(notification);
 
-                pushNotificationService.sendPushNotificationToUser(request.getRequestedBy(), "🔑 Permission Request", "Your request to view " + request.getFieldType() + " has been " + status);                
+            applyStatusUpdate(request, status);
 
-             }
-            // Prepare response
             resp.setCode(200);
             resp.setMessage("Status updated successfully");
             resp.setStatus(ResponseStatus.SUCCESS);
             resp.setData(request);
-            
             return resp;
-            
         } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Error updating status: " + e.getMessage());
             resp.setStatus(ResponseStatus.FAILURE);
             return resp;
         }
+    }
+
+    // Shared by the mobile-facing (base64 id) and admin-facing (plain id) status-update paths.
+    private void applyStatusUpdate(RestrictedFieldRequest request, ApprovalStatus status) {
+        request.setStatus(status);
+        restrictedFieldRequestRepository.save(request);
+
+        if (status == ApprovalStatus.APPROVED || status == ApprovalStatus.REJECTED) {
+            UserEntity user = userRepository.findById(request.getRequestedBy()).orElse(null);
+            boolean approved = status == ApprovalStatus.APPROVED;
+            Notification notification = new Notification();
+            notification.setSenderId(request.getRequestedTo());
+            notification.setReceiverId(request.getRequestedBy());
+            notification.setMessage((user != null ? user.getFirstName() + " " + user.getLastName() : "The member") + (approved
+                    ? " has accepted your request to view " + request.getFieldType()
+                    : " has declined your request to view " + request.getFieldType()));
+            notification.setNotificationCategory(request.getFieldType());
+            notification.setTitle(approved ? "Permission Accepted" : "Permission Declined");
+            notificationRepository.save(notification);
+
+            pushNotificationService.sendPushNotificationToUser(request.getRequestedBy(), "🔑 Permission Request", "Your request to view " + request.getFieldType() + " has been " + status);
+        }
+    }
+
+    // ============================================================
+    // ADMIN — used by adminpanel's /requests/mobile|images|horoscopes pages.
+    // Mirrors ServiceRequestService.adminListRequests/adminUpdateStatus exactly.
+    // ============================================================
+    public PaginatedResultResponse adminListRequests(String fieldType, String status, Integer page, Integer size) {
+        PaginatedResultResponse resp = new PaginatedResultResponse();
+        try {
+            PageRequest pr = PageRequest.of(page != null ? page : 0, size != null ? size : 20);
+            ApprovalStatus statusEnum = null;
+            if (status != null && !status.isBlank() && !"all".equalsIgnoreCase(status)) {
+                statusEnum = ApprovalStatus.valueOf(status.toUpperCase());
+            }
+
+            Page<RestrictedFieldRequest> p;
+            if (fieldType != null && !fieldType.isBlank() && statusEnum != null) {
+                p = restrictedFieldRequestRepository.findByFieldTypeAndStatus(fieldType, statusEnum, pr);
+            } else if (fieldType != null && !fieldType.isBlank()) {
+                p = restrictedFieldRequestRepository.findByFieldType(fieldType, pr);
+            } else if (statusEnum != null) {
+                p = restrictedFieldRequestRepository.findByStatus(statusEnum, pr);
+            } else {
+                p = restrictedFieldRequestRepository.findAllByOrderByIdDesc(pr);
+            }
+
+            List<Map<String, Object>> enriched = new ArrayList<>();
+            for (RestrictedFieldRequest r : p.getContent()) {
+                Map<String, Object> row = new HashMap<>();
+                row.put("id", r.getId());
+                row.put("requestedBy", r.getRequestedBy());
+                row.put("requestedTo", r.getRequestedTo());
+                row.put("fieldType", r.getFieldType());
+                row.put("status", r.getStatus());
+                row.put("createdAt", r.getCreatedAt());
+
+                try {
+                    UserEntity requester = userRepository.findById(r.getRequestedBy()).orElse(null);
+                    if (requester != null) {
+                        row.put("requesterName", ((requester.getFirstName() == null ? "" : requester.getFirstName()) + " " +
+                                (requester.getLastName() == null ? "" : requester.getLastName())).trim());
+                        row.put("requesterMobile", requester.getMobile());
+                        row.put("requesterProfileImage", requester.getProfileImage());
+                    }
+                } catch (Exception ignored) {}
+
+                try {
+                    UserEntity target = userRepository.findById(r.getRequestedTo()).orElse(null);
+                    if (target != null) {
+                        row.put("targetName", ((target.getFirstName() == null ? "" : target.getFirstName()) + " " +
+                                (target.getLastName() == null ? "" : target.getLastName())).trim());
+                        row.put("targetMobile", target.getMobile());
+                        row.put("targetProfileImage", target.getProfileImage());
+                    }
+                } catch (Exception ignored) {}
+
+                enriched.add(row);
+            }
+
+            resp.setCode(200);
+            resp.setStatus(ResponseStatus.SUCCESS);
+            resp.setMessage("Restricted field requests fetched");
+            resp.setData(enriched);
+            PaginationData pg = new PaginationData();
+            pg.setTotalPages(p.getTotalPages());
+            pg.setTotalElements(p.getTotalElements());
+            pg.setCurrentPage(p.getNumber());
+            pg.setPageSize(p.getSize());
+            resp.setPaginationData(pg);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setStatus(ResponseStatus.FAILURE);
+            resp.setMessage("Error fetching restricted field requests: " + e.getMessage());
+        }
+        return resp;
+    }
+
+    public ResultResponse adminUpdateStatus(Long id, String status) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            RestrictedFieldRequest request = restrictedFieldRequestRepository.findById(id)
+                    .orElseThrow(() -> new RuntimeException("Restricted field request not found"));
+            ApprovalStatus statusEnum = ApprovalStatus.valueOf(status.toUpperCase());
+            applyStatusUpdate(request, statusEnum);
+
+            resp.setCode(200);
+            resp.setStatus(ResponseStatus.SUCCESS);
+            resp.setMessage("Status updated successfully");
+            resp.setData(request);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setStatus(ResponseStatus.FAILURE);
+            resp.setMessage("Error updating status: " + e.getMessage());
+        }
+        return resp;
     }
 
 }

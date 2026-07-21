@@ -25,8 +25,12 @@ public interface InterestRequestRepository extends JpaRepository<InterestRequest
     Page<InterestRequest> findByInterestSendAndAcceptStatusNot(Long interestSend, ApprovalStatus status, Pageable pageable);
     
     Page<InterestRequest> findByInterestSendAndAcceptStatus(Long interestSend, ApprovalStatus status, Pageable pageable);
+
+    Page<InterestRequest> findByInterestSend(Long interestSend, Pageable pageable);
     
     boolean existsByInterestSendAndInterestReceived(Long interestSend, Long interestReceived);
+
+    Optional<InterestRequest> findByInterestSendAndInterestReceived(Long interestSend, Long interestReceived);
 
     @Query("SELECT i.acceptStatus FROM InterestRequest i " +
     "WHERE i.interestSend = :senderId AND i.interestReceived = :receiverId")

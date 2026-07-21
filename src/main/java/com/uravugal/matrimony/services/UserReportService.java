@@ -33,10 +33,48 @@ public class UserReportService {
         ResultResponse response = new ResultResponse();
         try {
             List<UserReport> reports = userReportRepository.findAllOrderByReportedAtDesc();
+
+            // Enrich with reporter/reported display names so both admin report pages can show
+            // real people instead of bare user IDs — same "return everything, enrich" pattern
+            // used by the other admin list endpoints added this session.
+            List<java.util.Map<String, Object>> enriched = new java.util.ArrayList<>();
+            for (UserReport r : reports) {
+                java.util.Map<String, Object> row = new java.util.HashMap<>();
+                row.put("id", r.getId());
+                row.put("reportedByUserId", r.getReportedByUserId());
+                row.put("reportedUserId", r.getReportedUserId());
+                row.put("reason", r.getReason());
+                row.put("reportType", r.getReportType());
+                row.put("reportedMessageId", r.getReportedMessageId());
+                row.put("messageContent", r.getMessageContent());
+                row.put("reportedAt", r.getReportedAt());
+                row.put("status", r.getStatus());
+                row.put("reviewedByAdminId", r.getReviewedByAdminId());
+                row.put("reviewedAt", r.getReviewedAt());
+                row.put("reviewNote", r.getReviewNote());
+
+                try {
+                    com.uravugal.matrimony.models.UserEntity reporter = userRepository.findById(r.getReportedByUserId()).orElse(null);
+                    if (reporter != null) {
+                        row.put("reporterName", ((reporter.getFirstName() == null ? "" : reporter.getFirstName()) + " " +
+                                (reporter.getLastName() == null ? "" : reporter.getLastName())).trim());
+                    }
+                } catch (Exception ignored) {}
+                try {
+                    com.uravugal.matrimony.models.UserEntity reported = userRepository.findById(r.getReportedUserId()).orElse(null);
+                    if (reported != null) {
+                        row.put("reportedName", ((reported.getFirstName() == null ? "" : reported.getFirstName()) + " " +
+                                (reported.getLastName() == null ? "" : reported.getLastName())).trim());
+                    }
+                } catch (Exception ignored) {}
+
+                enriched.add(row);
+            }
+
             response.setCode(200);
             response.setMessage("Reports retrieved successfully");
             response.setStatus(ResponseStatus.SUCCESS);
-            response.setData(reports);
+            response.setData(enriched);
         } catch (Exception e) {
             response.setCode(500);
             response.setMessage("Something Went Wrong. " + e.getMessage());
@@ -53,7 +91,7 @@ public class UserReportService {
             Long senderUserId = Long.parseLong(decodedId);
 
             if (userReportRepository.findByReportedByUserIdAndReportedUserId(
-                    senderUserId, 
+                    senderUserId,
                     userReport.getReportedUserId()
             ) != null) {
                 response.setCode(400);
@@ -65,20 +103,37 @@ public class UserReportService {
             reportData.setReportedByUserId(senderUserId);
             reportData.setReportedUserId(userReport.getReportedUserId());
             reportData.setReason(userReport.getReason());
+            if (userReport.getReportedMessageId() != null) {
+                reportData.setReportType("MESSAGE");
+                reportData.setReportedMessageId(userReport.getReportedMessageId());
+                reportData.setMessageContent(userReport.getMessageContent());
+            }
 
             // Create and save report
             UserReport savedReport = userReportRepository.save(reportData);
 
-            // Create block entry
-            BlockedUser blockedUser = new BlockedUser();
-            blockedUser.setBlockedByUserId(senderUserId);
-            blockedUser.setBlockedUserId(userReport.getReportedUserId());
-            blockedUserRepository.save(blockedUser);
+            // Blocking is now an explicit per-report choice instead of an automatic side effect —
+            // null defaults to true only for backward compatibility with any client that predates
+            // this field. Guard against inserting a duplicate block row (blockUser() elsewhere
+            // already checks this; the old code here never did, so reporting an already-blocked
+            // user would throw on the unique constraint and surface as a generic 500).
+            boolean shouldBlock = userReport.getBlockUser() == null || userReport.getBlockUser();
+            boolean alreadyBlocked = blockedUserRepository
+                    .findByBlockedByUserIdAndBlockedUserId(senderUserId, userReport.getReportedUserId()) != null;
+            if (shouldBlock && !alreadyBlocked) {
+                BlockedUser blockedUser = new BlockedUser();
+                blockedUser.setBlockedByUserId(senderUserId);
+                blockedUser.setBlockedUserId(userReport.getReportedUserId());
+                blockedUserRepository.save(blockedUser);
+            }
 
             response.setCode(200);
-            response.setMessage("User reported and blocked successfully");
+            response.setMessage(shouldBlock ? "User reported and blocked successfully" : "Report submitted successfully");
             response.setStatus(ResponseStatus.SUCCESS);
-            response.setData(savedReport);
+            java.util.Map<String, Object> data = new java.util.HashMap<>();
+            data.put("report", savedReport);
+            data.put("blocked", shouldBlock);
+            response.setData(data);
         } catch (Exception e) {
             response.setCode(500);
             response.setMessage("Something Went Wrong. " + e.getMessage());

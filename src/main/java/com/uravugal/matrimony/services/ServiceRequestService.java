@@ -3,17 +3,21 @@ package com.uravugal.matrimony.services;
 import com.uravugal.matrimony.dtos.PaginatedResultResponse;
 import com.uravugal.matrimony.dtos.PaginationData;
 import com.uravugal.matrimony.dtos.ResultResponse;
+import com.uravugal.matrimony.enums.ApprovalStatus;
 import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.models.Features;
+import com.uravugal.matrimony.models.InterestRequest;
 import com.uravugal.matrimony.models.PlanFeatures;
 import com.uravugal.matrimony.models.ServiceRequest;
 import com.uravugal.matrimony.models.UserSubscriptions;
 import com.uravugal.matrimony.repositories.FeaturesRepository;
+import com.uravugal.matrimony.repositories.InterestRequestRepository;
 import com.uravugal.matrimony.repositories.PlanFeaturesRepository;
 import com.uravugal.matrimony.repositories.ServiceRequestRepository;
 import com.uravugal.matrimony.repositories.UserSubscriptionsRepository;
 
 import java.util.Base64;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -42,6 +46,9 @@ public class ServiceRequestService {
 
     @Autowired
     private com.uravugal.matrimony.repositories.UserRepository userRepository;
+
+    @Autowired
+    private InterestRequestRepository interestRequestRepository;
 
     public ResultResponse createRequest(String encodedUserId, String requestType, String note, Long targetUserId) {
         ResultResponse resp = new ResultResponse();
@@ -76,6 +83,20 @@ public class ServiceRequestService {
                 resp.setStatus(ResponseStatus.FAILURE);
                 resp.setMessage("PLAN_UPGRADE_REQUIRED");
                 return resp;
+            }
+
+            // Voice calls only make sense between two people who have actually matched — a
+            // paid plan alone shouldn't let someone request a call with a stranger who hasn't
+            // even accepted their interest yet. Scoped to VOICE_CALL only (not the other
+            // service-request types, which aren't tied to a specific other member the same way).
+            if ("VOICE_CALL".equals(requestType) && targetUserId != null) {
+                Optional<InterestRequest> interest = interestRequestRepository.findBetweenUsers(userId, targetUserId);
+                if (interest.isEmpty() || interest.get().getAcceptStatus() != ApprovalStatus.APPROVED) {
+                    resp.setCode(403);
+                    resp.setStatus(ResponseStatus.FAILURE);
+                    resp.setMessage("INTEREST_NOT_APPROVED");
+                    return resp;
+                }
             }
 
             // Dedup — block duplicate PENDING requests from the same user

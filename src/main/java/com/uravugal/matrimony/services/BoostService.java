@@ -278,6 +278,55 @@ public class BoostService {
         return resp;
     }
 
+    /**
+     * Admin: instantly activate a 24h boost for a user, bypassing the subscription/credit
+     * requirement entirely (support gesture, campaign push, etc.) — unlike startBoost, this
+     * doesn't touch UserSubscriptions.boostCredits at all.
+     */
+    @Transactional
+    public ResultResponse adminActivateBoost(Long userId) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            if (userId == null) {
+                resp.setCode(400);
+                resp.setStatus(ResponseStatus.FAILURE);
+                resp.setMessage("userId required");
+                return resp;
+            }
+
+            // Expire any existing active boost first, same as startBoost — a user should never
+            // have two overlapping "active" rows.
+            ProfileBoost existing = profileBoostRepository
+                    .findFirstByUserIdAndStatusOrderByExpiresAtDesc(userId, "ACTIVE");
+            if (existing != null) {
+                existing.setStatus("EXPIRED");
+                profileBoostRepository.save(existing);
+            }
+
+            ProfileBoost boost = new ProfileBoost();
+            boost.setUserId(userId);
+            boost.setStartedAt(LocalDateTime.now());
+            boost.setExpiresAt(LocalDateTime.now().plusHours(24));
+            boost.setSource("ADMIN_GRANT");
+            boost.setStatus("ACTIVE");
+            ProfileBoost saved = profileBoostRepository.save(boost);
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("boostId", saved.getId());
+            data.put("expiresAt", saved.getExpiresAt().toString());
+
+            resp.setCode(200);
+            resp.setStatus(ResponseStatus.SUCCESS);
+            resp.setMessage("Boost activated for user " + userId);
+            resp.setData(data);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setStatus(ResponseStatus.FAILURE);
+            resp.setMessage("Error: " + e.getMessage());
+        }
+        return resp;
+    }
+
     /** Admin: immediately expire an active boost. */
     @Transactional
     public ResultResponse adminRevokeBoost(Long boostId) {

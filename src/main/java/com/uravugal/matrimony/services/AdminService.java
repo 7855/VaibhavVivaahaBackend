@@ -1212,7 +1212,7 @@ public class AdminService {
         return response;
     }
 
-    public ResultResponse rejectImage(Long galleryId) {
+    public ResultResponse rejectImage(Long galleryId, String reason) {
         ResultResponse response = new ResultResponse();
         try {
             Optional<GalleryEntity> optImage = galleryRepository.findById(galleryId);
@@ -1225,6 +1225,32 @@ public class AdminService {
             GalleryEntity image = optImage.get();
             image.setIsActive(ActiveStatus.N);
             galleryRepository.save(image);
+
+            // Clean up from user profile if it matches the main profileImage
+            Optional<UserEntity> optUser = userRepository.findById(image.getUserId());
+            if (optUser.isPresent()) {
+                UserEntity user = optUser.get();
+                if (user.getProfileImage() != null && user.getProfileImage().equals(image.getUserImage())) {
+                    user.setProfileImage(null);
+                    user.setThumbnailImage(null);
+                    userRepository.save(user);
+                }
+            }
+
+            // Save in-app notification
+            try {
+                Notification notif = new Notification();
+                notif.setReceiverId(image.getUserId());
+                notif.setTitle("Photo Rejected");
+                String notifMsg = "Your uploaded photo was rejected by the admin.";
+                if (reason != null && !reason.trim().isEmpty()) {
+                    notifMsg += " Reason: " + reason.trim();
+                }
+                notif.setMessage(notifMsg);
+                notif.setNotificationCategory("IMAGE_REJECTED");
+                notif.setIsRead(ActiveStatus.N);
+                notificationRepository.save(notif);
+            } catch (Exception ignored) { }
 
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);

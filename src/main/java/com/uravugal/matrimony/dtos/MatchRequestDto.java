@@ -24,8 +24,16 @@ public class MatchRequestDto {
     private Profile bride;
     private Profile groom;
 
+    // Present only for the profile-initiated Star Match flow (ProfileDetail.tsx -> StarMatch.tsx).
+    // The standalone horoscope-utility flow (settingsPage.tsx / QuickAccessFAB.tsx) omits both, and
+    // PoruthamService only enforces the interest-approval gate when both are non-null.
+    private String requesterUserId; // base64-encoded, same encoding used across the app's other endpoints
+    private String viewedUserId; // plain numeric id (as a string), matches ServiceRequestService's targetUserId convention
+
     public MatchRequestDto() {}
     public Profile getBride(){return bride;} public void setBride(Profile b){this.bride=b;}
     public Profile getGroom(){return groom;} public void setGroom(Profile g){this.groom=g;}
+    public String getRequesterUserId(){return requesterUserId;} public void setRequesterUserId(String r){this.requesterUserId=r;}
+    public String getViewedUserId(){return viewedUserId;} public void setViewedUserId(String v){this.viewedUserId=v;}
 }
 
