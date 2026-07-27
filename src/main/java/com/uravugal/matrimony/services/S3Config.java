@@ -2,7 +2,7 @@ package com.uravugal.matrimony.services;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.regions.Regions;
+import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +20,9 @@ public class S3Config {
     @Value("${aws.region}")
     private String region;
 
+    @Value("${aws.s3.endpoint}")
+    private String endpoint;
+
     @Bean
     public AmazonS3 s3Client(){
         BasicAWSCredentials awsCredentials = new BasicAWSCredentials(awsId, awsKey);
@@ -30,12 +33,14 @@ public class S3Config {
         clientConfig.setMaxErrorRetry(3);
 
         AmazonS3 amazonS3Client = AmazonS3ClientBuilder.standard()
-                .withRegion(Regions.fromName(region))
+                .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(endpoint, region))
                 .withCredentials(new AWSStaticCredentialsProvider(awsCredentials))
                 .withClientConfiguration(clientConfig)
+                .withPathStyleAccessEnabled(true)
                 .build();
         return amazonS3Client;
     }
 
 }
+
 

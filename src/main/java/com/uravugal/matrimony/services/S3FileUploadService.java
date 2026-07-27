@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import org.springframework.beans.factory.annotation.Value;
 import java.io.File;
 import java.io.FileInputStream;
 
@@ -22,6 +23,9 @@ public class S3FileUploadService {
 
     @Autowired
     private S3BucketMapping s3BucketMap;
+
+    @Value("${aws.s3.public.url:}")
+    private String publicUrl;
 
     private static final Logger logger = LoggerFactory.getLogger(S3FileUploadService.class);
 
@@ -55,7 +59,17 @@ public class S3FileUploadService {
 
             amazonS3.putObject(request);
 
-            String s3FileUrl = amazonS3.getUrl(bucketName, filePath).toString();
+            String s3FileUrl;
+            if (publicUrl != null && !publicUrl.trim().isEmpty()) {
+                String cleanPublicUrl = publicUrl.trim();
+                if (cleanPublicUrl.endsWith("/")) {
+                    cleanPublicUrl = cleanPublicUrl.substring(0, cleanPublicUrl.length() - 1);
+                }
+                s3FileUrl = cleanPublicUrl + "/" + filePath;
+            } else {
+                s3FileUrl = amazonS3.getUrl(bucketName, filePath).toString();
+            }
+
             inputStream.close();
             return s3FileUrl;
 

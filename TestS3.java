@@ -1,6 +1,6 @@
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.regions.Regions;
+import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.ObjectMetadata;
@@ -12,10 +12,18 @@ import java.util.Arrays;
 public class TestS3 {
     public static void main(String[] args) {
         try {
-            BasicAWSCredentials creds = new BasicAWSCredentials("AKIAWCV2UPJRIJ2CMA2A", "/MiAl0GfQD4e6iNNaXgYddYPyodIkON5ygfTSGAA");
+            BasicAWSCredentials creds = new BasicAWSCredentials(
+                "e818b85aaae46c7c27472f9f91e4574a", 
+                "fd068470c6270813a6eac3c95eb543a72985a41980e8b05473114a8355140f87"
+            );
+            
             AmazonS3 s3 = AmazonS3ClientBuilder.standard()
-                .withRegion(Regions.AP_SOUTH_1)
+                .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(
+                    "https://20c9765c33bcaa6120751cda0fdbb65d.r2.cloudflarestorage.com", 
+                    "us-east-1"
+                ))
                 .withCredentials(new AWSStaticCredentialsProvider(creds))
+                .withPathStyleAccessEnabled(true)
                 .build();
                 
             byte[] data = new byte[600000];
@@ -25,10 +33,14 @@ public class TestS3 {
                 fos.write(data);
             }
             
-            s3.putObject(new PutObjectRequest("uravugal", "test.txt", tempFile));
+            System.out.println("Uploading file to bucket: vvmapp-images");
+            s3.putObject(new PutObjectRequest("vvmapp-images", "test.txt", tempFile));
+            String fileUrl = s3.getUrl("vvmapp-images", "test.txt").toString();
             System.out.println("Upload 600KB file successful!");
+            System.out.println("Generated URL: " + fileUrl);
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 }
+
