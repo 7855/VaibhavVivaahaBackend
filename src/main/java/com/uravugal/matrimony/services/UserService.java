@@ -1202,6 +1202,34 @@ private Integer parseIntSafe(String val) {
                 }
             }
 
+            // Approval gate — a newly registered profile (from any client: mobile app, website,
+            // admin-created) defaults to PENDING and must not be able to log in anywhere until an
+            // admin approves it. Previously this was enforced ONLY client-side (mobile app read
+            // `userStatus` from a successful 200 login and redirected to a "pending" screen) —
+            // meaning login itself always succeeded and issued a real, usable token regardless of
+            // approval status. Any other client (e.g. a website login) that didn't reimplement that
+            // same client-side check would let PENDING/REJECTED users straight in. Blocking here
+            // instead makes the gate apply uniformly no matter which client calls this endpoint.
+            if (userentity.getUserStatus() == com.uravugal.matrimony.enums.ApprovalStatus.PENDING
+                    || userentity.getUserStatus() == com.uravugal.matrimony.enums.ApprovalStatus.REJECTED) {
+                boolean isRejected = userentity.getUserStatus() == com.uravugal.matrimony.enums.ApprovalStatus.REJECTED;
+                String pendingBase64Id = Base64.getEncoder()
+                        .encodeToString(String.valueOf(userentity.getUserId()).getBytes());
+                HashMap<String, Object> pendingData = new HashMap<>();
+                pendingData.put("userId", pendingBase64Id);
+                pendingData.put("firstName", userentity.getFirstName());
+                pendingData.put("userStatus", userentity.getUserStatus().toString());
+                pendingData.put("rejectionReason", userentity.getRejectionReason());
+                finalresult.setData(pendingData);
+                finalresult.setMessage(isRejected
+                        ? "Your profile was not approved" + (userentity.getRejectionReason() != null
+                                ? ": " + userentity.getRejectionReason() : ".")
+                        : "Your profile is still under review. You'll be able to log in once an admin approves it.");
+                finalresult.setStatus(ResponseStatus.FAILURE);
+                finalresult.setCode(403);
+                return finalresult;
+            }
+
             // PIN format can be either legacy base64 OR BCrypt (after password reset).
             // BCrypt strings start with $2a$, $2b$, or $2y$.
             boolean pinMatches;

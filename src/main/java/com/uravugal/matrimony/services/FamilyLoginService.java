@@ -198,7 +198,7 @@ public class FamilyLoginService {
         if (!decoded.equals(plainPin)) return null;
 
         UserEntity primary = userRepository.findById(fl.getPrimaryUserId()).orElse(null);
-        if (primary == null) return null;
+        if (primary == null || primary.getUserStatus() != com.uravugal.matrimony.enums.ApprovalStatus.APPROVED) return null;
 
         // Update last login timestamp
         fl.setLastLoginAt(java.time.LocalDateTime.now());

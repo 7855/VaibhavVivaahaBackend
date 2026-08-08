@@ -259,6 +259,13 @@ public class AuthService {
                 return response;
             }
 
+            if (user.getUserStatus() != com.uravugal.matrimony.enums.ApprovalStatus.APPROVED) {
+                response.setCode(403);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("Account is not active or approved");
+                return response;
+            }
+
             // Issue new access token + rotate refresh token
             String newAccessToken = jwtUtil.generateToken(
                     user.getUserId(),
