@@ -32,6 +32,10 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 // JWT DISABLED — all endpoints open. Re-enable later.
+                // ⚠ When re-enabling: /payments/cashfree/webhook must stay permitAll() — Cashfree
+                //   sends no Bearer token; its HMAC signature (x-webhook-signature) is the auth.
+                //   Also keep /payments/cashfree/order/*/status open: the website return page
+                //   runs inside a Custom Tab with no login and only reads non-personal status.
                 .anyRequest().permitAll()
             );
             // JWT filter disabled — uncomment to re-enable

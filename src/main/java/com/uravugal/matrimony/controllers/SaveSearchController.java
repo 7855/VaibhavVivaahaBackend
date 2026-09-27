@@ -101,6 +101,17 @@ public class SaveSearchController {
                             filterMap.put("jobSectors", value.toString());
                         }
                         break;
+                    case "Subcaste":
+                        // Stored under the lowercase key because SearchTabs' handleUseSearch
+                        // lowercases filterKey before switching on it.
+                        //
+                        // NOTE: this switch is a WHITELIST — any filterKey without a case here is
+                        // silently dropped, with no error anywhere. That is exactly why saved
+                        // searches appeared to lose their subcaste selection: the app sent it
+                        // correctly and the backend threw it away. Add a case here whenever a new
+                        // filter is added on the client.
+                        filterMap.put("subcaste", value);
+                        break;
                     case "profileImageStatus1":
                         filterMap.put("profileImageStatus", value);
                         break;

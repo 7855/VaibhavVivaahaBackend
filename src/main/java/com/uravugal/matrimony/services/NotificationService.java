@@ -20,11 +20,36 @@ import java.util.stream.Collectors;
 @Service
 public class NotificationService {
 
+    /** Shown instead of the sender's name to a recipient whose plan does not include names. */
+    private static final String ANONYMOUS_NAME = "Someone";
+
+    /**
+     * Discovery notifications — "who liked / viewed / shortlisted you" and the daily match.
+     * Seeing WHO is the paid benefit, so these are anonymised for a free recipient. Everything
+     * else (message, interest, interest accepted, call request, permission decisions) names the
+     * sender on every plan: the member needs to know who is actually contacting them.
+     */
+    private static boolean isDiscoveryCategory(String category) {
+        if (category == null) return false;
+        switch (category.toUpperCase()) {
+            case "LIKE":
+            case "PROFILE_VIEW":
+            case "SHORTLIST":
+            case "DAILY_MATCH":
+                return true;
+            default:
+                return false;
+        }
+    }
+
     @Autowired
     private NotificationRepository notificationRepository;
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private PushNotificationService pushNotificationService;
 
     public ResultResponse getAllNotificationsForUser(String encodedId) {
         ResultResponse response = new ResultResponse();
@@ -39,6 +64,9 @@ public class NotificationService {
 
             System.out.println("Notifications: " + notifications);
             // Map each notification to NotificationResponse DTO
+            // One plan lookup for the whole page, not one per row.
+            final boolean maskSender = !pushNotificationService.canSeeNamesInNotifications(userId);
+
             List<NotificationResponse> notificationResponses = notifications.stream().map(notification -> {
                 NotificationResponse notifRes = new NotificationResponse();
                 notifRes.setNotificationId(notification.getNotificationId());
@@ -51,8 +79,20 @@ public class NotificationService {
                 // Fetch sender user info (skip for system notifications where senderId is null)
                 if (notification.getSenderId() != null) {
                     userRepository.findById(notification.getSenderId()).ifPresent(sender -> {
-                        notifRes.setAvatar(sender.getProfileImage());
-                        notifRes.setUserName(sender.getFirstName());
+                        // ⚠️ Masking the push text alone is not enough: this list ships the
+                        // sender's NAME and PHOTO as separate fields, so a free member could
+                        // read "Someone liked your profile" and see exactly who right beside it.
+                        // Discovery notifications (who liked / viewed / shortlisted you) are the
+                        // paid benefit, so for a free recipient they are anonymised here too.
+                        // Essential ones — a message, an interest, a call request — always carry
+                        // the real name, because the member needs to know who is contacting them.
+                        if (maskSender && isDiscoveryCategory(notification.getNotificationCategory())) {
+                            notifRes.setUserName(ANONYMOUS_NAME);
+                            notifRes.setAvatar(null);
+                        } else {
+                            notifRes.setAvatar(sender.getProfileImage());
+                            notifRes.setUserName(sender.getFirstName());
+                        }
                         notifRes.setUserAge(sender.getAge());
                         notifRes.setUserLocation(sender.getLocation());
                     });

@@ -112,11 +112,29 @@ public class AdminService {
     @Autowired
     private NotificationRepository notificationRepository;
 
+    /** The one activation path shared with the Cashfree webhook — see that class. */
+    @Autowired
+    private SubscriptionActivationService subscriptionActivationService;
+
     public PaginatedResultResponse getAllUsersForAdmin(int page, int size, String userType, String userStatus) {
+        return getAllUsersForAdmin(page, size, userType, userStatus, null, null);
+    }
+
+    /**
+     * @param plan   exact subscription_plans.title of the member's LATEST subscription, or null
+     * @param search matched with LIKE against first name, last name, "first last", e-mail,
+     *               mobile and memberId — across ALL members, not the current page. The admin
+     *               list used to filter the 10 rows it already had, so a member on page 7 could
+     *               not be found by name at all (client, 2026-09-27). Blank → no filter.
+     */
+    public PaginatedResultResponse getAllUsersForAdmin(int page, int size, String userType, String userStatus,
+                                                       String plan, String search) {
+        String s = search == null || search.trim().isEmpty() ? null : search.trim();
+        String p = plan == null || plan.trim().isEmpty() ? null : plan.trim();
         PaginatedResultResponse response = new PaginatedResultResponse();
         try {
             Pageable pageable = PageRequest.of(page, size);
-            Page<Object[]> userPage = userRepository.findAllUsersForAdmin(userType, userStatus, pageable);
+            Page<Object[]> userPage = userRepository.findAllUsersForAdmin(userType, userStatus, p, s, pageable);
 
             List<Map<String, Object>> userList = new ArrayList<>();
             for (Object[] row : userPage.getContent()) {
@@ -132,6 +150,7 @@ public class AdminService {
                 dto.put("createdOn", row[8] != null ? (Date) row[8] : null);
                 dto.put("isActive", row[9] != null ? row[9].toString() : null);
                 dto.put("isUser", row.length > 10 && row[10] != null ? row[10].toString() : "FA");
+                dto.put("resubmissionNote", row.length > 11 && row[11] != null ? (String) row[11] : null);
                 userList.add(dto);
             }
 
@@ -225,6 +244,27 @@ public class AdminService {
             dto.setAnnualIncome(row[26] != null ? (String) row[26] : null);
             dto.setProfileImage(row[27] != null ? (String) row[27] : null);
             dto.setHoroscope(row[28] != null ? (String) row[28] : null);
+            // Appended to the END of the select on purpose — these reads are POSITIONAL, so a
+            // column added in the middle silently shifts every mapping after it.
+            dto.setHobbies(row.length > 29 && row[29] != null ? (String) row[29] : null);
+            dto.setAbout(row.length > 30 && row[30] != null ? (String) row[30] : null);
+            dto.setHeight(row.length > 31 && row[31] != null ? (String) row[31] : null);
+            dto.setBirthTime(str(row, 32));
+            dto.setMoonSign(str(row, 33));
+            dto.setPhysicalStatus(str(row, 34));
+            dto.setMaritalStatus(str(row, 35));
+            dto.setCurrentAddress(str(row, 36));
+            dto.setNativePlace(str(row, 37));
+            dto.setFamilyType(str(row, 38));
+            dto.setFamilyStatus(str(row, 39));
+            dto.setFatherOccupation(str(row, 40));
+            dto.setMotherOccupation(str(row, 41));
+            dto.setNoOfBrothers(str(row, 42));
+            dto.setBrothersMarried(str(row, 43));
+            dto.setNoOfSisters(str(row, 44));
+            dto.setSistersMarried(str(row, 45));
+            dto.setSubcasteId(row.length > 46 && row[46] != null ? ((Number) row[46]).intValue() : null);
+            dto.setSubcasteName(str(row, 47));
 
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);
@@ -253,6 +293,21 @@ public class AdminService {
                 }
             }
 
+            // Email must be unique too. Only the mobile was checked, so staff could create a
+            // second account on an address that already has one — the same hole that produced
+            // duplicate accounts through self-registration and was closed there on 2026-09-05.
+            // findByEmail returns the NEWEST match, so a duplicate also breaks login for the
+            // older account: it can never be reached by e-mail again.
+            if (request.getEmail() != null && !request.getEmail().isBlank()) {
+                UserEntity byEmail = userRepository.findByEmail(request.getEmail().trim());
+                if (byEmail != null) {
+                    response.setCode(409);
+                    response.setStatus(ResponseStatus.FAILURE);
+                    response.setMessage("User already exists with email: " + request.getEmail());
+                    return response;
+                }
+            }
+
             // === Save UserEntity ===
             UserEntity user = new UserEntity();
             user.setFirstName(request.getFirstName());
@@ -265,6 +320,7 @@ public class AdminService {
             user.setLocation(request.getLocation());
             user.setPin(request.getPin());
             user.setCasteId(request.getCasteId());
+            user.setSubcasteId(request.getSubcasteId() == null ? null : request.getSubcasteId().longValue());
             user.setProfileCreated(request.getProfileCreatedFor());
             user.setProfileImage(request.getProfileImage());
             user.setIsBlocked('N');
@@ -294,6 +350,14 @@ public class AdminService {
             userDetail.setJobPlace(request.getJobPlace());
             userDetail.setAnnualIncome(request.getAnnualIncome());
             userDetail.setHoroscope(request.getHoroscope());
+            // These were missing on CREATE only — the update path had them, so a member added
+            // here lost their height, about, interests and both addresses until someone
+            // re-saved them from the edit screen.
+            userDetail.setHeight(request.getHeight());
+            userDetail.setAbout(request.getAbout());
+            userDetail.setHobbies(request.getHobbies());
+            userDetail.setPresentAddress(request.getCurrentAddress());
+            userDetail.setPermanentAddress(request.getNativePlace());
 
             // EmployedAt
             if (request.getEmployedAt() != null && !request.getEmployedAt().isEmpty()) {
@@ -302,36 +366,25 @@ public class AdminService {
 
             ObjectMapper mapper = new ObjectMapper();
 
-            // Family Info JSON
-            Map<String, String> familyInfoMap = new HashMap<>();
-            familyInfoMap.put("fatherName", nullToEmpty(request.getFatherName()));
-            familyInfoMap.put("motherName", nullToEmpty(request.getMotherName()));
-            familyInfoMap.put("father", nullToEmpty(request.getFatherName()));
-            familyInfoMap.put("mother", nullToEmpty(request.getMotherName()));
-            familyInfoMap.put("father_occupation", "");
-            familyInfoMap.put("mother_occupation", "");
-            familyInfoMap.put("house", "");
-            familyInfoMap.put("familyType", "");
-            familyInfoMap.put("family_status", "");
-            familyInfoMap.put("no_of_brother", "");
-            familyInfoMap.put("no_of_sister", "");
-            familyInfoMap.put("brother_married", "");
-            familyInfoMap.put("sister_married", "");
-            userDetail.setFamilyInfo(mapper.writeValueAsString(familyInfoMap));
+            // Family Info JSON — see writeFamilyInfo.
+            if (hasAnyFamilyField(request)) {
+                userDetail.setFamilyInfo(writeFamilyInfo(mapper, userDetail.getFamilyInfo(), request));
+            }
 
             // Basic Info JSON
             Map<String, String> basicInfoMap = new HashMap<>();
             basicInfoMap.put("place_of_birth", nullToEmpty(request.getPlaceOfBirth()));
             basicInfoMap.put("mother_language", nullToEmpty(request.getMotherLanguage()));
-            basicInfoMap.put("marital_status", "");
-            basicInfoMap.put("physical_status", "");
+            basicInfoMap.put("marital_status", nullToEmpty(request.getMaritalStatus()));
+            basicInfoMap.put("physical_status", nullToEmpty(request.getPhysicalStatus()));
             userDetail.setBasicInfo(mapper.writeValueAsString(basicInfoMap));
 
             // Astro Info JSON (as List of Map, matching existing pattern)
             Map<String, String> astroInfoMap = new HashMap<>();
             astroInfoMap.put("star", nullToEmpty(request.getStar()));
             astroInfoMap.put("dosham", nullToEmpty(request.getDosham()));
-            astroInfoMap.put("moon_sign", "");
+            astroInfoMap.put("moon_sign", nullToEmpty(request.getMoonSign()));
+            astroInfoMap.put("birth_time", nullToEmpty(request.getBirthTime()));
             List<Map<String, String>> astroInfoList = new ArrayList<>();
             astroInfoList.add(astroInfoMap);
             userDetail.setAstronomicInfo(mapper.writeValueAsString(astroInfoList));
@@ -344,6 +397,24 @@ public class AdminService {
             }
 
             userDetailRepository.save(userDetail);
+
+            // Auto-assign the Free plan, exactly as self-registration does. Without this row a
+            // member created here has NO subscription at all: a Profile Boost cannot be
+            // credited to them ("no ACTIVE subscription to credit"), and any report counting
+            // members by plan misses them entirely. Best-effort — a failure here must not
+            // undo an otherwise valid member.
+            try {
+                UserSubscriptions freeSub = new UserSubscriptions();
+                freeSub.setUserId(user.getUserId());
+                freeSub.setSubscriptionPlanId(1L);
+                freeSub.setStatus(SubscriptionStatus.ACTIVE);
+                freeSub.setStartDate(java.time.LocalDate.now());
+                freeSub.setAutoRenew(com.uravugal.matrimony.enums.ActiveStatus.N);
+                userSubscriptionsRepository.save(freeSub);
+            } catch (Exception subEx) {
+                System.err.println("Admin-created user " + user.getUserId()
+                        + " has no Free subscription row: " + subEx.getMessage());
+            }
 
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);
@@ -358,6 +429,73 @@ public class AdminService {
     }
 
     @Transactional
+    /**
+     * Rebuilds `user_details.familyInfo`, preserving everything already there.
+     *
+     * 🔴 The old code read it with `readValue(json, Map.class)` and wrote a plain OBJECT. The
+     * column holds a JSON ARRAY ([{...}]) written by the app, so the read always threw (silently
+     * caught) and the write REPLACED the whole array with {fatherName, father} — destroying
+     * family type, status, both occupations, every sibling count and the app-only keys (house,
+     * brother_sister). 10 production rows were already OBJECT-shaped from this.
+     *
+     * ⚠ There were TWO copies of that logic, create and update, and fixing one left the other
+     * destroying data. It lives here now so that cannot happen again.
+     */
+    private String writeFamilyInfo(ObjectMapper mapper, String existingJson, AdminUserDetailDTO request)
+            throws Exception {
+        Map<String, Object> family = new HashMap<>();
+        if (existingJson != null && !existingJson.isBlank()) {
+            try {
+                Object parsed = mapper.readValue(existingJson, Object.class);
+                if (parsed instanceof List<?> list && !list.isEmpty()
+                        && list.get(0) instanceof Map<?, ?> first) {
+                    first.forEach((k, v) -> family.put(String.valueOf(k), v));
+                } else if (parsed instanceof Map<?, ?> obj) {
+                    obj.forEach((k, v) -> family.put(String.valueOf(k), v));
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        // The app's own key names — anything else is invisible to it.
+        putIfPresent(family, "father", request.getFatherName());
+        putIfPresent(family, "mother", request.getMotherName());
+        putIfPresent(family, "father_occupation", request.getFatherOccupation());
+        putIfPresent(family, "mother_occupation", request.getMotherOccupation());
+        putIfPresent(family, "family_type", request.getFamilyType());
+        putIfPresent(family, "family_status", request.getFamilyStatus());
+        putIfPresent(family, "no_of_brother", request.getNoOfBrothers());
+        putIfPresent(family, "brother_married", request.getBrothersMarried());
+        putIfPresent(family, "no_of_sister", request.getNoOfSisters());
+        putIfPresent(family, "sister_married", request.getSistersMarried());
+        // The app derives this rather than asking for it; keep the two in step.
+        try {
+            int b = Integer.parseInt(String.valueOf(family.getOrDefault("no_of_brother", "0")).trim());
+            int g = Integer.parseInt(String.valueOf(family.getOrDefault("no_of_sister", "0")).trim());
+            family.put("no_of_siblings", String.valueOf(b + g));
+        } catch (Exception ignored) {
+        }
+        List<Map<String, Object>> familyList = new ArrayList<>();
+        familyList.add(family);
+        return mapper.writeValueAsString(familyList);
+    }
+
+    private static boolean hasAnyFamilyField(AdminUserDetailDTO r) {
+        return r.getFatherName() != null || r.getMotherName() != null
+                || r.getFatherOccupation() != null || r.getMotherOccupation() != null
+                || r.getFamilyType() != null || r.getFamilyStatus() != null
+                || r.getNoOfBrothers() != null || r.getBrothersMarried() != null
+                || r.getNoOfSisters() != null || r.getSistersMarried() != null;
+    }
+
+    private static void putIfPresent(Map<String, Object> map, String key, String value) {
+        if (value != null) map.put(key, value);
+    }
+
+    /** Positional read from a native-query row, tolerant of a shorter row from an older jar. */
+    private static String str(Object[] row, int i) {
+        return row.length > i && row[i] != null ? row[i].toString() : null;
+    }
+
     public ResultResponse updateUserFromAdmin(Long userId, AdminUserDetailDTO request) {
         ResultResponse response = new ResultResponse();
         try {
@@ -393,6 +531,9 @@ public class AdminService {
                 user.setPin(request.getPin());
             if (request.getCasteId() != null)
                 user.setCasteId(request.getCasteId());
+            // Subcaste was readable but not writable, so a wrong one could never be corrected.
+            if (request.getSubcasteId() != null)
+                user.setSubcasteId(request.getSubcasteId() == null ? null : request.getSubcasteId().longValue());
             if (request.getProfileCreatedFor() != null)
                 user.setProfileCreated(request.getProfileCreatedFor());
             if (request.getProfileImage() != null)
@@ -424,6 +565,17 @@ public class AdminService {
                 userDetail.setAnnualIncome(request.getAnnualIncome());
             if (request.getHoroscope() != null)
                 userDetail.setHoroscope(request.getHoroscope());
+            if (request.getHobbies() != null)
+                userDetail.setHobbies(request.getHobbies());
+            if (request.getAbout() != null)
+                userDetail.setAbout(request.getAbout());
+            if (request.getHeight() != null)
+                userDetail.setHeight(request.getHeight());
+            if (request.getCurrentAddress() != null)
+                userDetail.setPresentAddress(request.getCurrentAddress());
+            // "Native Place" is the permanentAddress column — see the app's CLAUDE.md §17.
+            if (request.getNativePlace() != null)
+                userDetail.setPermanentAddress(request.getNativePlace());
 
             if (request.getEmployedAt() != null && !request.getEmployedAt().isEmpty()) {
                 userDetail.setEmployedAt(mapEmploymentType(request.getEmployedAt()));
@@ -431,31 +583,14 @@ public class AdminService {
 
             ObjectMapper mapper = new ObjectMapper();
 
-            // Family Info JSON
-            if (request.getFatherName() != null || request.getMotherName() != null) {
-                Map<String, String> familyInfoMap = new HashMap<>();
-                // Try to preserve existing data
-                if (userDetail.getFamilyInfo() != null) {
-                    try {
-                        @SuppressWarnings("unchecked")
-                        Map<String, String> existing = mapper.readValue(userDetail.getFamilyInfo(), Map.class);
-                        familyInfoMap.putAll(existing);
-                    } catch (Exception ignored) {
-                    }
-                }
-                if (request.getFatherName() != null) {
-                    familyInfoMap.put("fatherName", request.getFatherName());
-                    familyInfoMap.put("father", request.getFatherName());
-                }
-                if (request.getMotherName() != null) {
-                    familyInfoMap.put("motherName", request.getMotherName());
-                    familyInfoMap.put("mother", request.getMotherName());
-                }
-                userDetail.setFamilyInfo(mapper.writeValueAsString(familyInfoMap));
+            // Family Info JSON — see writeFamilyInfo for why this cannot be a Map.
+            if (hasAnyFamilyField(request)) {
+                userDetail.setFamilyInfo(writeFamilyInfo(mapper, userDetail.getFamilyInfo(), request));
             }
 
             // Basic Info JSON
-            if (request.getPlaceOfBirth() != null || request.getMotherLanguage() != null) {
+            if (request.getPlaceOfBirth() != null || request.getMotherLanguage() != null
+                    || request.getPhysicalStatus() != null || request.getMaritalStatus() != null) {
                 Map<String, String> basicInfoMap = new HashMap<>();
                 if (userDetail.getBasicInfo() != null) {
                     try {
@@ -465,15 +600,22 @@ public class AdminService {
                     } catch (Exception ignored) {
                     }
                 }
+                // ⚠ snake_case: these are the keys the APP reads. The admin GET used to look
+                // for "$.placeOfBirth", which never matched what is written here.
                 if (request.getPlaceOfBirth() != null)
                     basicInfoMap.put("place_of_birth", request.getPlaceOfBirth());
                 if (request.getMotherLanguage() != null)
                     basicInfoMap.put("mother_language", request.getMotherLanguage());
+                if (request.getPhysicalStatus() != null)
+                    basicInfoMap.put("physical_status", request.getPhysicalStatus());
+                if (request.getMaritalStatus() != null)
+                    basicInfoMap.put("marital_status", request.getMaritalStatus());
                 userDetail.setBasicInfo(mapper.writeValueAsString(basicInfoMap));
             }
 
             // Astro Info JSON
-            if (request.getStar() != null || request.getDosham() != null) {
+            if (request.getStar() != null || request.getDosham() != null
+                    || request.getBirthTime() != null || request.getMoonSign() != null) {
                 Map<String, String> astroInfoMap = new HashMap<>();
                 // Try to preserve existing astro data
                 if (userDetail.getAstronomicInfo() != null) {
@@ -490,6 +632,10 @@ public class AdminService {
                     astroInfoMap.put("star", request.getStar());
                 if (request.getDosham() != null)
                     astroInfoMap.put("dosham", request.getDosham());
+                if (request.getBirthTime() != null)
+                    astroInfoMap.put("birth_time", request.getBirthTime());
+                if (request.getMoonSign() != null)
+                    astroInfoMap.put("moon_sign", request.getMoonSign());
                 List<Map<String, String>> astroInfoList = new ArrayList<>();
                 astroInfoList.add(astroInfoMap);
                 userDetail.setAstronomicInfo(mapper.writeValueAsString(astroInfoList));
@@ -571,19 +717,7 @@ public class AdminService {
 
             // BOOST_PURCHASE: increment boost_credits instead of creating a subscription
             if ("BOOST_PURCHASE".equals(paymentReq.getNote())) {
-                java.util.List<UserSubscriptions> activeSubs = userSubscriptionsRepository
-                        .findByUserIdAndStatus(paymentReq.getUserId(), SubscriptionStatus.ACTIVE);
-                if (!activeSubs.isEmpty()) {
-                    UserSubscriptions sub = activeSubs.get(0);
-                    int current = sub.getBoostCredits() != null ? sub.getBoostCredits() : 0;
-                    sub.setBoostCredits(current + 1);
-                    userSubscriptionsRepository.save(sub);
-                }
-                pushNotificationService.sendPushNotificationToUser(
-                        paymentReq.getUserId(),
-                        "Boost Ready! 🚀",
-                        "Your boost credit has been added. Go to your profile and boost now!"
-                );
+                subscriptionActivationService.addBoostCredit(paymentReq.getUserId());
                 response.setCode(200);
                 response.setStatus(ResponseStatus.SUCCESS);
                 response.setMessage("Boost purchase approved — 1 credit added");
@@ -600,34 +734,30 @@ public class AdminService {
 
             SubscriptionPlan plan = optPlan.get();
 
-            UserSubscriptions subscription = new UserSubscriptions();
-            subscription.setUserId(paymentReq.getUserId());
-            subscription.setSubscriptionPlanId(plan.getId());
-            subscription.setStatus(SubscriptionStatus.ACTIVE);
-            subscription.setAutoRenew(ActiveStatus.N);
-            subscription.setStartDate(LocalDate.now());
-            subscription.setEndDate(LocalDate.now().plusDays(plan.getDurationDays()));
-            subscription.setPaymentReference("PAY_REQ_" + paymentReq.getId());
+            // A plan that has been retired (isActive = 'N') must not be sold to anyone new, even
+            // if a payment request for it was raised before it was pulled. Existing subscribers on
+            // that plan are unaffected — entitlements are read from planFeatures by plan id, not
+            // from this flag — so grandfathering keeps working.
+            if (plan.getIsActive() != ActiveStatus.Y) {
+                response.setCode(400);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("SUBSCRIPTION_PLAN_INACTIVE: '" + plan.getTitle()
+                        + "' is no longer offered. Ask the member to choose a currently available plan.");
+                return response;
+            }
 
-            userSubscriptionsRepository.save(subscription);
+            UserEntity member = userRepository.findById(paymentReq.getUserId()).orElse(null);
+            if (member == null) {
+                response.setCode(404);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("User not found with ID: " + paymentReq.getUserId());
+                return response;
+            }
 
-            // Send push notification to user about payment approval (bypass plan gate)
-            pushNotificationService.sendPushNotificationToUserDirect(
-                paymentReq.getUserId(),
-                "Payment Approved! 🎉",
-                "Your " + plan.getTitle() + " plan is now active. Enjoy premium features!"
-            );
-
-            // In-app notification
-            try {
-                Notification notif = new Notification();
-                notif.setReceiverId(paymentReq.getUserId());
-                notif.setTitle("Payment Approved");
-                notif.setMessage("Your " + plan.getTitle() + " plan is now active. Enjoy premium features!");
-                notif.setNotificationCategory("PAYMENT_APPROVED");
-                notif.setIsRead(ActiveStatus.N);
-                notificationRepository.save(notif);
-            } catch (Exception ignored) { }
+            // Shared activation (subscription row + push + in-app + email) — same code the
+            // Cashfree webhook and assignPlanToUser run, so all three stay identical.
+            subscriptionActivationService.activatePlan(member, plan,
+                    "PAY_REQ_" + paymentReq.getId(), "PAYMENT_APPROVED");
 
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);
@@ -826,12 +956,15 @@ public class AdminService {
             UserEntity user = optUser.get();
             user.setUserStatus(ApprovalStatus.APPROVED);
             user.setRejectionReason(null);
+            // The member's resubmission note is consumed once acted on — leaving
+            // it would show a stale note on a future rejection round.
+            user.setResubmissionNote(null);
             userRepository.save(user);
 
             // Send approval email
             if (user.getEmail() != null && !user.getEmail().isBlank()) {
                 try {
-                    emailService.sendApprovalEmail(user.getEmail(), user.getFirstName());
+                    emailService.sendApprovalEmail(user.getEmail(), fullName(user));
                 } catch (Exception emailEx) {
                     System.out.println("Warning: approval email failed: " + emailEx.getMessage());
                 }
@@ -859,6 +992,93 @@ public class AdminService {
         return response;
     }
 
+    /**
+     * Admin manually grants a plan to a member (Users -> Assign Plan) — no payment
+     * request involved. Mirrors approvePayment's activation exactly (new ACTIVE
+     * user_subscriptions row; the latest-row-wins finder makes it take effect
+     * immediately), then notifies the member by email + push + in-app.
+     *
+     * DELIBERATELY allows plans with isActive='N' — the member-facing purchase
+     * guard exists to stop SELLING retired plans, while admin assignment is how
+     * invisible packs like Trial are granted. The picker in the admin UI lists
+     * all plans for exactly this reason.
+     */
+    /** Deleted-account tombstones (deleted_accounts), newest first. */
+    public PaginatedResultResponse getDeletedAccounts(int page, int size) {
+        PaginatedResultResponse response = new PaginatedResultResponse();
+        try {
+            org.springframework.data.domain.Page<com.uravugal.matrimony.models.DeletedAccount> p =
+                    deletedAccountRepository.findAll(PageRequest.of(page, size,
+                            org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "id")));
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage("Deleted accounts fetched");
+            response.setData(p.getContent());
+            PaginationData pg = new PaginationData();
+            pg.setTotalPages(p.getTotalPages());
+            pg.setTotalElements(p.getTotalElements());
+            pg.setCurrentPage(page);
+            pg.setPageSize(size);
+            response.setPaginationData(pg);
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Error fetching deleted accounts: " + e.getMessage());
+        }
+        return response;
+    }
+
+    @Autowired
+    private com.uravugal.matrimony.repositories.DeletedAccountRepository deletedAccountRepository;
+
+    public ResultResponse assignPlanToUser(Long userId, Long planId, Long adminId) {
+        ResultResponse response = new ResultResponse();
+        try {
+            Optional<UserEntity> optUser = userRepository.findById(userId);
+            if (optUser.isEmpty()) {
+                response.setCode(404);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("User not found");
+                return response;
+            }
+            Optional<SubscriptionPlan> optPlan = subscriptionPlanRepository.findById(planId);
+            if (optPlan.isEmpty()) {
+                response.setCode(404);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("Subscription plan not found with ID: " + planId);
+                return response;
+            }
+            UserEntity user = optUser.get();
+            SubscriptionPlan plan = optPlan.get();
+
+            // Shared activation: subscription row + email + Direct push + in-app notification.
+            subscriptionActivationService.activatePlan(user, plan,
+                    "ADMIN_ASSIGN" + (adminId != null ? "_BY_" + adminId : ""), "PLAN_ASSIGNED");
+
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage(plan.getTitle() + " plan assigned to " + user.getFirstName());
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Error assigning plan: " + e.getMessage());
+        }
+        return response;
+    }
+
+    /**
+     * Member's full name for outbound email (client 2026-09-09: every mail should
+     * address them by first AND last name, not just the first). Falls back to
+     * whichever half exists, and finally to "there" so a greeting never renders
+     * as "Dear ,".
+     */
+    private String fullName(UserEntity u) {
+        String first = u.getFirstName() != null ? u.getFirstName().trim() : "";
+        String last = u.getLastName() != null ? u.getLastName().trim() : "";
+        String full = (first + " " + last).trim();
+        return full.isEmpty() ? "there" : full;
+    }
+
     public ResultResponse rejectUser(Long userId, String reason) {
         ResultResponse response = new ResultResponse();
         try {
@@ -877,14 +1097,19 @@ public class AdminService {
                 return response;
             }
             UserEntity user = optUser.get();
+            // Mirror the admin panel's 250-char cap server-side — the member sees
+            // this verbatim on the rejection screen and in the rejection email.
+            String trimmedReason = reason.trim();
+            if (trimmedReason.length() > 250) trimmedReason = trimmedReason.substring(0, 250);
             user.setUserStatus(ApprovalStatus.REJECTED);
-            user.setRejectionReason(reason);
+            user.setRejectionReason(trimmedReason);
+            user.setResubmissionNote(null); // consumed — see approveUser
             userRepository.save(user);
 
             // Send rejection email
             if (user.getEmail() != null && !user.getEmail().isBlank()) {
                 try {
-                    emailService.sendRejectionEmail(user.getEmail(), user.getFirstName(), reason);
+                    emailService.sendRejectionEmail(user.getEmail(), fullName(user), trimmedReason);
                 } catch (Exception emailEx) {
                     System.out.println("Warning: rejection email failed: " + emailEx.getMessage());
                 }
@@ -1055,7 +1280,11 @@ public class AdminService {
     public PaginatedResultResponse getAllUserSubscriptions(int page, int size) {
         PaginatedResultResponse response = new PaginatedResultResponse();
         try {
-            Pageable pageable = PageRequest.of(page, size);
+            // Newest first. Unsorted, findAll came back oldest-first, and the admin page asks
+            // for one page of 50 — so a subscription bought TODAY sat at row ~228 and was
+            // never shown (client, 2026-09-27: could not see a member's plan rows at all).
+            Pageable pageable = PageRequest.of(page, size,
+                    org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt"));
             Page<UserSubscriptions> subscriptions = userSubscriptionsRepository.findAll(pageable);
 
             List<Map<String, Object>> enriched = new ArrayList<>();

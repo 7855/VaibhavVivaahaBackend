@@ -41,6 +41,9 @@ public class UserDetailService {
     @Autowired
     private com.uravugal.matrimony.repositories.KeyValueRepository keyValueRepository;
 
+    @Autowired
+    private com.uravugal.matrimony.repositories.SubCasteRepository subCasteRepository;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private String nullToEmpty(String value) {
@@ -80,6 +83,11 @@ public class UserDetailService {
             astroInfo.put("star", request.getStar());
             astroInfo.put("moon_sign", request.getMoonSign());
             astroInfo.put("dosham", request.getDosham());
+            // Only write when the caller sent the field, so an older app build (which omits it)
+            // cannot blank a birth time the member already saved.
+            if (request.getBirthTime() != null) {
+                astroInfo.put("birth_time", request.getBirthTime().trim());
+            }
             
             // Convert back to JSON array
             JsonMap[] updatedArray = new JsonMap[]{astroInfo};
@@ -183,6 +191,21 @@ public ResultResponse updatePersonalInfo(PersonalInfoRequest request) {
             }
             user.setDob(parsedDob);
             user.setAge(String.valueOf(computedAge));
+        }
+
+        // Subcaste is optional — only touched when the client actually sends one, and only if
+        // it belongs to the user's current caste (same rule as registration).
+        if (request.getSubcasteId() != null) {
+            com.uravugal.matrimony.models.SubCasteEntity subCaste =
+                    subCasteRepository.findById(request.getSubcasteId()).orElse(null);
+            if (subCaste == null || subCaste.getCasteId() == null || user.getCasteId() == null
+                    || !subCaste.getCasteId().equals(user.getCasteId().longValue())) {
+                resp.setCode(400);
+                resp.setStatus(ResponseStatus.FAILURE);
+                resp.setMessage("Subcaste does not belong to the selected caste");
+                return resp;
+            }
+            user.setSubcasteId(request.getSubcasteId());
         }
 
         // Save user first
@@ -572,14 +595,20 @@ public ResultResponse calculateProfileCompletion(String userId) {
 // Define fields to check
 List<String> requiredFields = new ArrayList<>(Arrays.asList(
     "horoscope", "profileImage", "height", "weight", "star",
-    "moonSign", "dosham", "maritalStatus", "motherLanguage",
+    "moonSign", "dosham", "birthTime", "maritalStatus", "motherLanguage",
     "familyType", "familyStatus", "numberOfSiblings",
     "noOfBrothers", "noOfSisters", "brotherMarried", "sisterMarried",
     "hobbies",
     // Moved out of required signup fields (see sign-up.tsx) — now tracked here instead so
     // the completion % and "next action" nudge steer users to fill them in post-signup.
     "jobPlace", "educationInDetail", "annualIncome", "currentAddress", "nativePlace",
-    "fatherName", "fatherOccupation", "motherName", "motherOccupation"
+    "fatherName", "fatherOccupation", "motherName", "motherOccupation",
+    // Registration-collected fields (client 2026-09-09). Without these the tally
+    // counted ONLY post-signup extras, so a member who had just finished the whole
+    // registration form was told their profile was 0% complete — demoralising and
+    // simply untrue. Counting them starts a fresh registrant at a real number.
+    "firstName", "lastName", "dateOfBirth", "gender", "caste",
+    "education", "occupation", "employedAt", "location"
 ));
 
 int totalFields = requiredFields.size();
@@ -588,6 +617,21 @@ int totalFields = requiredFields.size();
         Map<String, Object> nextActions = new LinkedHashMap<>(); // To track potential next actions
 
 
+        // ── Registration fields ────────────────────────────────────────────
+        // Read straight off the entities; these are the values createUser wrote.
+        java.util.function.BiConsumer<String, Object> creditIfPresent = (name, val) -> {
+            boolean present = val != null && !String.valueOf(val).trim().isEmpty()
+                    && !"null".equalsIgnoreCase(String.valueOf(val).trim());
+            if (present && missingFields.remove(name)) {
+                completedFields.incrementAndGet();
+            }
+        };
+        creditIfPresent.accept("firstName", userEntity.getFirstName());
+        creditIfPresent.accept("lastName", userEntity.getLastName());
+        creditIfPresent.accept("dateOfBirth", userEntity.getDob());
+        creditIfPresent.accept("gender", userEntity.getGender());
+        creditIfPresent.accept("caste", userEntity.getCasteId());
+        creditIfPresent.accept("location", userEntity.getLocation());
         if (userEntity.getProfileImage() != null && !userEntity.getProfileImage().isEmpty()) {
             completedFields.incrementAndGet();
             missingFields.remove("profileImage");
@@ -600,6 +644,11 @@ int totalFields = requiredFields.size();
         if (userDetails == null) {
             throw new RuntimeException("User details not found");
         }
+
+        // Registration fields that live on user_details (see creditIfPresent above).
+        creditIfPresent.accept("education", userDetails.getDegree());
+        creditIfPresent.accept("occupation", userDetails.getOccupation());
+        creditIfPresent.accept("employedAt", userDetails.getEmployedAt());
 
         // Check UserDetailEntity fields
         if (userDetails.getHoroscope() != null && !userDetails.getHoroscope().isEmpty()) {
@@ -672,6 +721,7 @@ int totalFields = requiredFields.size();
             checkField(firstAstro, "star", "star", missingFields, completedFields::incrementAndGet);
             checkField(firstAstro, "moon_sign", "moonSign", missingFields, completedFields::incrementAndGet);
             checkField(firstAstro, "dosham", "dosham", missingFields, completedFields::incrementAndGet);
+            checkField(firstAstro, "birth_time", "birthTime", missingFields, completedFields::incrementAndGet);
         }
 
         // Check family info fields
@@ -733,7 +783,17 @@ int percentage = (int) Math.round((completedFields.get() * 100.0) / totalFields)
         Map.Entry<String, Object> nextAction = !nextActions.isEmpty() ? 
             nextActions.entrySet().iterator().next() : 
             createDefaultNextAction(missingFields);
-        responseData.put("nextAction", nextAction != null ? nextAction.getValue() : null);
+        // The map KEY (PROFILE_IMAGE, HEIGHT_WEIGHT, FAMILY_DETAILS, ...) is what the app
+        // routes on — it used to be dropped here, leaving the app to guess the destination
+        // from the human-readable title. Copy the action and carry the key alongside.
+        Map<String, Object> nextActionPayload = null;
+        if (nextAction != null) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> actionMap = (Map<String, Object>) nextAction.getValue();
+            nextActionPayload = new HashMap<>(actionMap);
+            nextActionPayload.put("key", nextAction.getKey());
+        }
+        responseData.put("nextAction", nextActionPayload);
         
         // Meta info
         responseData.put("meta", Map.of(

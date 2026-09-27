@@ -179,6 +179,21 @@ public class UserConnectionService {
                 return response;
             }
 
+            // Guard against duplicates. There is no unique constraint on
+            // (followerId, followingId), and this used to insert unconditionally — so tapping
+            // Follow twice created two rows, after which findByFollowerIdAndFollowingId (an
+            // Optional finder) threw and UNFOLLOW failed with a 500 permanently. Treat a repeat
+            // follow as a no-op success: the caller's intent ("I follow this person") is already
+            // satisfied, and erroring would be worse UX than doing nothing.
+            List<UserConnectionEntity> existing =
+                    userConnectionRepository.findAllByFollowerIdAndFollowingId(followerId, followingId);
+            if (!existing.isEmpty()) {
+                response.setCode(200);
+                response.setStatus(ResponseStatus.SUCCESS);
+                response.setMessage("Already following");
+                return response;
+            }
+
             UserConnectionEntity connection = new UserConnectionEntity();
             connection.setFollowerId(followerId);
             connection.setFollowingId(followingId);
@@ -374,10 +389,13 @@ public class UserConnectionService {
                 return response;
             }
 
-            Optional<UserConnectionEntity> connection = userConnectionRepository
-                    .findByFollowerIdAndFollowingId(followerId, followingId);
-            if (connection.isPresent()) {
-                userConnectionRepository.delete(connection.get());
+            // List form, not Optional: if duplicate rows exist from before followUser was
+            // guarded, the Optional finder would throw and the member could never unfollow.
+            // Deleting all matching rows also self-heals those pairs.
+            List<UserConnectionEntity> connections = userConnectionRepository
+                    .findAllByFollowerIdAndFollowingId(followerId, followingId);
+            if (!connections.isEmpty()) {
+                userConnectionRepository.deleteAll(connections);
 
                 response.setCode(200);
                 response.setStatus(ResponseStatus.SUCCESS);
@@ -405,7 +423,14 @@ public class UserConnectionService {
             UserEntity user = userRepository.findById(userId).orElse(null);
             if (user != null) {
                 user.setLastSeen(LocalDateTime.now());
-                user.setOnline(true);
+                // 🔴 This used to also force setOnline(true) — backwards. The app calls this
+                // endpoint precisely when the member is GOING AWAY: app backgrounded, logout,
+                // and socket close (three of its four call sites). So every exit re-flagged the
+                // member ONLINE, and nothing here could ever clear it. Production had 20 members
+                // shown as "Online" with real last-seen values days and weeks old.
+                // Online/offline belongs to the socket alone (UserWebSocketHandler:
+                // connect → updateLastSeen(id,true), close → updateLastSeen(id,false)).
+                // This endpoint only records WHEN they were last around.
                 userRepository.save(user);
                 response.setCode(200);
                 response.setStatus(ResponseStatus.SUCCESS);
@@ -430,10 +455,22 @@ public class UserConnectionService {
         try {
             UserEntity user = userRepository.findById(userId).get();
             if (user != null) {
+                // The live session map is the truth, not the stored flag. A server restart
+                // force-closes every socket while the Spring context is already shutting down,
+                // so afterConnectionClosed cannot persist "offline" (it logs and skips) — the
+                // flag then says online forever. Reading the map makes that self-correcting,
+                // and it is the same source broadcastPresence already trusts.
+                boolean reallyOnline = com.uravugal.matrimony.config.UserWebSocketHandler
+                        .isUserOnline(user.getUserId());
+                if (user.isOnline() != reallyOnline) {
+                    // Heal the stale row so search results and any other reader agree.
+                    user.setOnline(reallyOnline);
+                    try { userRepository.save(user); } catch (Exception ignored) { }
+                }
                 Map<String, Object> status = new HashMap<>();
                 status.put("userId", user.getUserId());
                 status.put("lastSeen", user.getLastSeen());
-                status.put("isOnline", user.isOnline());
+                status.put("isOnline", reallyOnline);
 
                 result.setData(status);
                 result.setCode(200);

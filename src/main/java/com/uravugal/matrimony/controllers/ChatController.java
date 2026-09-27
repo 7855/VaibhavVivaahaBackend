@@ -33,10 +33,16 @@ public class ChatController {
     }
 
     @GetMapping("/conversation/{conversationId}")
-    public ResultResponse getActiveChatsByConversation(@PathVariable Long conversationId) {
+    public ResultResponse getActiveChatsByConversation(@PathVariable Long conversationId,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) Long viewerId,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) Long after) {
         ResultResponse response = new ResultResponse();
         try {
-            response = chatService.getActiveChatsByConversation(conversationId);
+            // `after` present (even 0) = the incremental sync contract, object response.
+            // Absent = legacy full-array response, kept for app builds already in the field.
+            response = after != null
+                    ? chatService.syncConversation(conversationId, viewerId, after)
+                    : chatService.getActiveChatsByConversation(conversationId, viewerId);
         } catch (Exception e) {
             response.setCode(500);
             response.setMessage("Something Went Wrong. " + e.getMessage());

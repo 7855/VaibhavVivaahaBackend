@@ -24,6 +24,9 @@ public class UserFilterRequest {
     private String profilesWithHoroscope;
 
     private Integer casteId;
+    // Multi-select on the search screen (chips, same as degree/star/dosham). Null or empty
+    // means "any subcaste" — see the COALESCE guard in UserRepository's native queries.
+    private List<Long> subcasteIds;
     private String gender;
     private Long userId;
 }

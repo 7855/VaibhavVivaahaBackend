@@ -33,8 +33,204 @@ public class GalleryService {
     private UserDetailRepository userDetailRepository;
 
     private static final String AWS_BASE_PATH = "userGallery/";
+
+    /** Files land here when nothing is attached to a member yet (admin create flow). */
+    private static final String AWS_STAGING_PATH = "adminUploads/";
+
+    /**
+     * Store a file and hand back its URL. Nothing else — no member, no DB row.
+     *
+     * The admin panel needs this because a photo can be chosen BEFORE the member exists, and
+     * because the same picker also accepts a pasted URL: making every path produce a URL means
+     * one code path for uploads, pastes, create and edit. The row is attached afterwards by
+     * {@link #addGalleryImageByUrl} / setProfileImageByUrl.
+     */
+    public ResultResponse uploadImage(MultipartFile file, String folder) {
+        ResultResponse response = new ResultResponse();
+        try {
+            if (file == null || file.isEmpty()) {
+                response.setCode(400);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("No file provided");
+                return response;
+            }
+            String ext = getFileExtension(file.getOriginalFilename());
+            String fileName = "img_" + System.currentTimeMillis() + "_"
+                    + UUID.randomUUID().toString().substring(0, 6) + (ext.isEmpty() ? "" : "." + ext);
+            File tempDir = new File(System.getProperty("java.io.tmpdir"));
+            File tempFile = new File(tempDir, fileName);
+            file.transferTo(tempFile);
+            String path = (folder == null || folder.isBlank() ? AWS_STAGING_PATH : folder);
+            String fileUrl = s3UploadService.uploadGalleryImage(tempFile, path);
+            tempFile.delete();
+
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage("File uploaded successfully");
+            response.setData(fileUrl);
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Error uploading file: " + e.getMessage());
+        }
+        return response;
+    }
+
+    /**
+     * Attach an already-hosted image to a member's gallery.
+     *
+     * ⚠ Takes the RAW numeric userId, like uploadGalleryImage — not the Base64 one that
+     * getAllImagesByUserId and setAsProfileImage take. That split is pre-existing; see the
+     * app's CLAUDE.md note on the gallery endpoints disagreeing about the id.
+     */
+    public ResultResponse addGalleryImageByUrl(String userId, String imageUrl) {
+        ResultResponse response = new ResultResponse();
+        try {
+            if (imageUrl == null || imageUrl.isBlank()) {
+                response.setCode(400);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("No image URL provided");
+                return response;
+            }
+            Long id = Long.parseLong(userId);
+            UserEntity user = userRepository.findById(id).orElse(null);
+            if (user == null) {
+                response.setCode(404);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("User not found");
+                return response;
+            }
+            // Same cap uploadGalleryImage enforces. Without it the admin panel could add ten
+            // photos while the member's own app says "0/3" and refuses the fourth.
+            List<GalleryEntity> existing = galleryRepository.findByUserIdAndIsActive(id, ActiveStatus.Y);
+            if (existing != null && existing.size() >= MAX_GALLERY_PHOTOS) {
+                response.setCode(400);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("Maximum " + MAX_GALLERY_PHOTOS + " gallery photos allowed");
+                return response;
+            }
+
+            GalleryEntity gallery = new GalleryEntity();
+            gallery.setUserId(id);
+            gallery.setUserImage(imageUrl.trim());
+            gallery.setIsActive(ActiveStatus.Y);
+            galleryRepository.save(gallery);
+
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage("Gallery image added successfully");
+            response.setData(gallery.getGalleryId());
+        } catch (NumberFormatException e) {
+            response.setCode(400);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Invalid user ID format");
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Error adding gallery image: " + e.getMessage());
+        }
+        return response;
+    }
+
+    /** Point users.profileImage / user_details.horoscope at an already-hosted image. */
+    public ResultResponse setImageUrl(String userId, String imageUrl, boolean horoscope) {
+        ResultResponse response = new ResultResponse();
+        try {
+            if (imageUrl == null || imageUrl.isBlank()) {
+                response.setCode(400);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("No image URL provided");
+                return response;
+            }
+            Long id = Long.parseLong(userId);
+            UserEntity user = userRepository.findById(id).orElse(null);
+            if (user == null) {
+                response.setCode(404);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("User not found");
+                return response;
+            }
+            if (horoscope) {
+                UserDetailEntity detail = userDetailRepository.findByUserId(id);
+                if (detail == null) {
+                    detail = new UserDetailEntity();
+                    detail.setUserId(id);
+                }
+                detail.setHoroscope(imageUrl.trim());
+                userDetailRepository.save(detail);
+            } else {
+                user.setProfileImage(imageUrl.trim());
+                userRepository.save(user);
+            }
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage(horoscope ? "Horoscope updated successfully" : "Profile image updated successfully");
+            response.setData(imageUrl.trim());
+        } catch (NumberFormatException e) {
+            response.setCode(400);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Invalid user ID format");
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Error updating image: " + e.getMessage());
+        }
+        return response;
+    }
     private static final String AWS_BASE_PATH_HO = "userHoroscope/";
     private static final int MAX_GALLERY_PHOTOS = 3;
+
+    /**
+     * Promote an image the member already has in their gallery to be their profile photo.
+     *
+     * Copies the stored URL onto users.profileImage — no re-upload, so no second copy in S3 and
+     * no round-trip through the device. The gallery row is left in place; the same picture is
+     * simply now also the profile photo.
+     *
+     * encodedUserId is verified to own the gallery row, otherwise any caller could point another
+     * member's profile photo at an arbitrary image.
+     */
+    public ResultResponse setGalleryImageAsProfile(String encodedUserId, Long galleryId) {
+        ResultResponse response = new ResultResponse();
+        try {
+            Long userId = Long.parseLong(new String(java.util.Base64.getDecoder().decode(encodedUserId)));
+
+            GalleryEntity image = galleryRepository.findById(galleryId).orElse(null);
+            if (image == null) {
+                response.setCode(404);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("Image not found.");
+                return response;
+            }
+            if (!userId.equals(image.getUserId())) {
+                response.setCode(403);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("This image does not belong to you.");
+                return response;
+            }
+
+            UserEntity user = userRepository.findById(userId).orElse(null);
+            if (user == null) {
+                response.setCode(404);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("User not found.");
+                return response;
+            }
+
+            user.setProfileImage(image.getUserImage());
+            userRepository.save(user);
+
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage("Profile photo updated.");
+            response.setData(image.getUserImage());
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Could not set profile photo: " + e.getMessage());
+        }
+        return response;
+    }
 
     
     @Autowired
@@ -80,6 +276,60 @@ public class GalleryService {
             response.setCode(500);
             response.setStatus(ResponseStatus.FAILURE);
             response.setMessage("Error updating image status: " + e.getMessage());
+        }
+        return response;
+    }
+
+    /**
+     * Replace ONE gallery photo in place: uploads the new file and updates the
+     * SAME GalleryEntity row's URL. Chosen over delete-then-upload on purpose —
+     * that reorders the gallery (new row lands last) and, worse, at the 3-photo
+     * cap the delete must happen first, leaving a window where a failed upload
+     * loses the member's photo. Ownership-checked like setGalleryImageAsProfile.
+     */
+    public ResultResponse replaceGalleryImage(String userId, Long galleryId, MultipartFile file) {
+        ResultResponse response = new ResultResponse();
+        try {
+            Long id = Long.parseLong(userId);
+            GalleryEntity image = galleryRepository.findById(galleryId).orElse(null);
+            if (image == null) {
+                response.setCode(404);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("Image not found.");
+                return response;
+            }
+            if (!id.equals(image.getUserId())) {
+                response.setCode(403);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("This image does not belong to you.");
+                return response;
+            }
+            if (file == null || file.isEmpty()) {
+                response.setCode(400);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("No file provided");
+                return response;
+            }
+            String fileName = "profile_" + System.currentTimeMillis() + "_"
+                    + UUID.randomUUID().toString().substring(0, 6)
+                    + "." + getFileExtension(file.getOriginalFilename());
+            File tempDir = new File(System.getProperty("java.io.tmpdir"));
+            File tempFile = new File(tempDir, fileName);
+            file.transferTo(tempFile);
+            String fileUrl = s3UploadService.uploadGalleryImage(tempFile, AWS_BASE_PATH + "user_" + userId);
+            tempFile.delete();
+
+            image.setUserImage(fileUrl);
+            galleryRepository.save(image);
+
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage("Photo replaced successfully");
+            response.setData(fileUrl);
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Could not replace photo: " + e.getMessage());
         }
         return response;
     }

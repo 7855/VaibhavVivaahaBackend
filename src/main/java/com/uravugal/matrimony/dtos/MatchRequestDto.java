@@ -3,11 +3,13 @@ package com.uravugal.matrimony.dtos;
 public class MatchRequestDto {
     public static class Profile {
         private String name;
-        private String dob; // yyyy-MM-dd (not used for porutham checks here)
-        private String timeOfBirth; // HH:mm
+        // dob / timeOfBirth / place are accepted for older app builds but NOT used: the Tamil
+        // 10-porutham method works from star + rasi only (see PoruthamEngine).
+        private String dob;
+        private String timeOfBirth;
         private String place;
-        private String star; // 1..27
-        private String rasi; // textual rasi name (preferred)
+        private String star; // any spelling — resolved by StarInfo.starId
+        private String rasi; // any spelling — resolved by StarInfo.rasiId
         // private Integer pada; // 1..4 optional
 
         // getters & setters omitted for brevity (add them)

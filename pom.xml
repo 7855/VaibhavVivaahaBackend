@@ -34,6 +34,12 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>
 		</dependency>
+		<!-- Receipt PDFs (payment_invoices). Pure Java, no native deps. -->
+		<dependency>
+			<groupId>com.github.librepdf</groupId>
+			<artifactId>openpdf</artifactId>
+			<version>2.0.3</version>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-web</artifactId>
@@ -157,16 +163,19 @@
     <artifactId>spring-boot-starter-websocket</artifactId>
 </dependency>
 <dependency>
-    <groupId>com.razorpay</groupId>
-    <artifactId>razorpay-java</artifactId>
-    <version>1.4.8</version> 
-</dependency>
-<dependency>
     <groupId>javax.xml.bind</groupId>
     <artifactId>jaxb-api</artifactId>
     <version>2.3.1</version>
 </dependency>
 <!-- Bean Validation -->
+    <!-- Was only ever on the classpath transitively via razorpay-java (removed 2026-09-15);
+         UserDetailService imports org.apache.commons.lang3, so declare it explicitly.
+         Version managed by spring-boot-dependencies. -->
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-lang3</artifactId>
+    </dependency>
+
 <dependency>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-validation</artifactId>

@@ -45,6 +45,20 @@ public class UserController {
         return resp;
     }
 
+    /** Body: { mobileNumber, oldPin, newPin } — 401 when oldPin doesn't match. */
+    @PostMapping("/changePinWithOld")
+    public ResultResponse changePinWithOld(@RequestBody java.util.Map<String, String> body) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            resp = userService.changePinWithOld(body.get("mobileNumber"), body.get("oldPin"), body.get("newPin"));
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
     @PostMapping("/verifyOtp")
     public ResultResponse verifyOtp(@RequestBody OtpVerificationRequest request) {
         ResultResponse resp = new ResultResponse();
@@ -326,6 +340,22 @@ public class UserController {
         return resp;
     }
 
+    /** Body is optional: { "message": "note to admin" } (<=250 chars). */
+    @PostMapping("/resubmit-profile/{encodedUserId}")
+    public ResultResponse resubmitProfile(@PathVariable String encodedUserId,
+            @RequestBody(required = false) java.util.Map<String, String> body) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            String note = body != null ? body.get("message") : null;
+            resp = userService.resubmitProfile(encodedUserId, note);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
     @PutMapping("/lastseen/{encodedId}")
     public ResultResponse updateLastSeen(@PathVariable String encodedId) {
         ResultResponse resp = new ResultResponse();
@@ -366,10 +396,11 @@ public class UserController {
     }
 
     @org.springframework.web.bind.annotation.DeleteMapping("/deleteAccount/{encodedUserId}")
-    public ResultResponse deleteAccount(@PathVariable String encodedUserId) {
+    public ResultResponse deleteAccount(@PathVariable String encodedUserId,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String reason) {
         ResultResponse resp = new ResultResponse();
         try {
-            resp = userService.deleteAccount(encodedUserId);
+            resp = userService.deleteAccount(encodedUserId, reason);
         } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Something Went Wrong. " + e.getMessage());

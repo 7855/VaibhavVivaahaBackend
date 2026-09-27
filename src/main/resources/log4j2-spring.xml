@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- One log file per day under LOG_DIR, deleted after LOG_RETENTION_DAYS. The active file is
+     already the dated one (direct-write rollover), so a day's log is one file to open. -->
+<Configuration status="WARN">
+  <Properties>
+    <Property name="LOG_DIR">${env:LOG_DIR:-logs}</Property>
+    <Property name="KEEP_DAYS">${env:LOG_RETENTION_DAYS:-90}</Property>
+    <Property name="PATTERN">%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%t] %logger{36} - %msg%n</Property>
+  </Properties>
+  <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">
+      <PatternLayout pattern="${PATTERN}"/>
+    </Console>
+    <RollingFile name="Daily" filePattern="${LOG_DIR}/api-%d{yyyy-MM-dd}.log">
+      <PatternLayout pattern="${PATTERN}"/>
+      <Policies>
+        <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+      </Policies>
+      <DirectWriteRolloverStrategy>
+        <Delete basePath="${LOG_DIR}" maxDepth="1">
+          <IfFileName glob="api-*.log"/>
+          <IfLastModified age="P${KEEP_DAYS}D"/>
+        </Delete>
+      </DirectWriteRolloverStrategy>
+    </RollingFile>
+  </Appenders>
+  <Loggers>
+    <Root level="info">
+      <AppenderRef ref="Console"/>
+      <AppenderRef ref="Daily"/>
+    </Root>
+  </Loggers>
+</Configuration>

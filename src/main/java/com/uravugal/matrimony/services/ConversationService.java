@@ -27,6 +27,38 @@ public class ConversationService {
     @Autowired
     private ChatRepository chatRepository;
 
+    @Autowired
+    private ChatService chatService;
+
+    private static final String LOCKED_PREVIEW = "\uD83D\uDD12 New message \u2014 upgrade to read";
+
+    private static boolean isSystemMessage(String m) {
+        return m != null && (m.startsWith("I have liked your profile") || m.startsWith("Interest request approved"));
+    }
+
+/**
+ * Coerce a native-query column to boolean without assuming a JDBC type.
+ *
+ * A bit(1) column does NOT come back as the same Java type everywhere: read directly it is
+ * usually Boolean, but wrapped in a scalar subquery or a COALESCE the server can widen it to an
+ * integer, and some driver/connection-property combinations hand back byte[] instead. A raw
+ * (Boolean) cast therefore works on one database and throws ClassCastException on another —
+ * which is exactly what happened here: `(Boolean) row[5]` for isRead threw
+ * "Integer cannot be cast to Boolean" in production while passing locally, taking the WHOLE
+ * chat-list endpoint down with a 500. Because this backend returns HTTP 200 with the error
+ * only in the body's `code`, the app read `data` as empty and rendered "no conversations"
+ * rather than an error — the failure was invisible end to end. The gender column had already
+ * caused this same class of bug once (see the note at the end of the mapper below).
+ */
+private static boolean asBoolean(Object value) {
+    if (value == null) return false;
+    if (value instanceof Boolean b) return b;
+    if (value instanceof Number n) return n.intValue() != 0;
+    if (value instanceof byte[] bytes) return bytes.length > 0 && bytes[0] != 0;
+    String s = value.toString().trim();
+    return s.equals("1") || s.equalsIgnoreCase("true") || s.equalsIgnoreCase("Y");
+}
+
 public ResultResponse getUserChatListWithRecentMessage(Long userId) {
     ResultResponse response = new ResultResponse();
     try {
@@ -45,25 +77,37 @@ public ResultResponse getUserChatListWithRecentMessage(Long userId) {
             }
         }
 
+        // A member without the MESSAGE entitlement cannot open a chat (the app shows an
+        // upgrade wall), yet the list preview used to print the other member's last message in
+        // full. Mask it — they get to know a message arrived, not what it says.
+        final boolean canRead = chatService.canReadMessages(userId);
+
         List<ChatListResponse> chatList = rawResults.stream().map(row -> {
             Long conversationId = ((Number) row[0]).longValue();
             Long otherUserId = ((Number) row[1]).longValue();
 
             Integer unreadCount = unreadCountByConversation.getOrDefault(conversationId, 0);
 
+            String lastMessage = (String) row[3];
+            Long lastSenderId = row.length > 12 && row[12] != null ? ((Number) row[12]).longValue() : null;
+            if (!canRead && lastMessage != null && !isSystemMessage(lastMessage)
+                    && (lastSenderId == null || !lastSenderId.equals(userId))) {
+                lastMessage = LOCKED_PREVIEW;
+            }
+
             return new ChatListResponse(
                 conversationId,                                  // conversationId
                 otherUserId,                                     // otherUserId
                 (String) row[2],                                 // otherUserName
-                (String) row[3],                                 // lastMessage
+                lastMessage,                                     // lastMessage (masked for free viewers)
                 row[4] != null ? ((Timestamp) row[4]).toLocalDateTime() : null, // lastMessageTime
-                row[5] != null && (Boolean) row[5],             // isRead - direct boolean cast
+                asBoolean(row[5]),                               // isRead — see asBoolean()
                 (String) row[6],                                 // status
                 (String) row[7],                                 // profileImage
                 unreadCount,                                     // unreadMessageCount
-                row.length > 8 && row[8] != null && ((Number) row[8]).intValue() != 0,  // idVerified
-                row.length > 9 && row[9] != null && ((Number) row[9]).intValue() != 0,  // educationVerified
-                row.length > 10 && row[10] != null && ((Number) row[10]).intValue() != 0, // incomeVerified
+                row.length > 8 && asBoolean(row[8]),              // idVerified
+                row.length > 9 && asBoolean(row[9]),              // educationVerified
+                row.length > 10 && asBoolean(row[10]),            // incomeVerified
                 row.length > 11 && row[11] != null ? row[11].toString() : null // gender — the driver
                 // returns this single-character ENUM column as a Character, not a String, so a
                 // direct (String) cast threw a ClassCastException that crashed the whole chat
@@ -85,17 +129,43 @@ public ResultResponse getUserChatListWithRecentMessage(Long userId) {
     return response;
 }
 
-    public ResultResponse inActiveConversationById(Long id) {
+    /**
+     * Hide a conversation from ONE participant's chat list.
+     *
+     * Replaces the previous behaviour, which had two problems:
+     *  1. It set the shared isActive = N, so "delete" removed the thread from BOTH people's
+     *     lists — a member could send abusive messages and then erase them from the recipient's
+     *     view. Now only the caller's own side is hidden.
+     *  2. It took a bare conversation id with no identity check, so any caller could delete any
+     *     two strangers' conversation (IDOR). requesterId is now verified to be a participant.
+     *
+     * The `chats` rows are deliberately left untouched — message history is retained in full for
+     * moderation, and a new message un-hides the thread for both sides (see ChatService).
+     */
+    public ResultResponse deleteConversationForUser(Long id, Long requesterId) {
         ResultResponse response = new ResultResponse();
         try {
-            if(conversationRepository.findById(id).isPresent()) {
+            if (requesterId == null) {
+                response.setCode(400);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("Requester id is required.");
+                return response;
+            }
+            if (conversationRepository.findById(id).isPresent()) {
                 Conversation conversation = conversationRepository.findById(id).get();
-                conversation.setIsActive(ActiveStatus.N);
+
+                if (!conversation.markDeletedFor(requesterId)) {
+                    // Not a participant — do not confirm the conversation exists.
+                    response.setCode(403);
+                    response.setStatus(ResponseStatus.FAILURE);
+                    response.setMessage("You are not a participant in this conversation.");
+                    return response;
+                }
                 conversationRepository.save(conversation);
-                
+
                 response.setCode(200);
                 response.setStatus(ResponseStatus.SUCCESS);
-                response.setMessage("Conversation inactivated successfully.");
+                response.setMessage("Conversation removed from your chat list.");
             }else {
                 response.setCode(404);
                 response.setStatus(ResponseStatus.FAILURE);

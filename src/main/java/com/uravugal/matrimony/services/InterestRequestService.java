@@ -446,6 +446,18 @@ public class InterestRequestService {
             interestRequestRepository.save(request);
 
             if(status == ApprovalStatus.APPROVED) {
+                // Both members may have sent each other an interest ("same time"). One
+                // acceptance connects the pair, so the REVERSE row must follow — otherwise one
+                // screen says Accepted while the other still says Pending/Declined for the
+                // very same two people.
+                interestRequestRepository
+                        .findByInterestSendAndInterestReceived(request.getInterestReceived(), request.getInterestSend())
+                        .filter(rev -> rev.getAcceptStatus() != ApprovalStatus.APPROVED)
+                        .ifPresent(rev -> {
+                            rev.setAcceptStatus(ApprovalStatus.APPROVED);
+                            interestRequestRepository.save(rev);
+                        });
+
                 // Find conversation (normalized: smaller userId = userOne)
                 Long minId = Math.min(request.getInterestSend(), request.getInterestReceived());
                 Long maxId = Math.max(request.getInterestSend(), request.getInterestReceived());
@@ -473,7 +485,10 @@ public class InterestRequestService {
                 pushNotificationService.sendPushNotificationToUserDirect(
                     request.getInterestSend(),
                     "Interest Accepted! 🎉",
-                    acceptorName + " accepted your interest request. Start chatting now!"
+                    // Free recipients see "Someone accepted your interest request" — who accepted
+                    // is a paid-plan benefit, and is the strongest upgrade prompt we have.
+                    pushNotificationService.nameForRecipient(request.getInterestSend(), acceptorName)
+                        + " accepted your interest request. Start chatting now!"
                 );
 
                 // Save in-app notification
@@ -511,26 +526,7 @@ public class InterestRequestService {
                 return resp;
             }
 
-            Long sendId = request.getInterestSend();
-            Long recvId = request.getInterestReceived();
-
-            interestRequestRepository.delete(request);
-
-            // Cancelling a sent interest used to leave its auto-created conversation behind
-            // (visible in the chat list with only the "I have liked your profile" system
-            // message, even though the request itself no longer shows as pending). Clean it up —
-            // but only when no real conversation ever happened on top of it; if either side sent
-            // an actual message, leave the conversation alone.
-            Long minId = Math.min(sendId, recvId);
-            Long maxId = Math.max(sendId, recvId);
-            Conversation convo = conversationRepository.findByUserOneAndUserTwo(minId, maxId);
-            if (convo != null) {
-                Long realMessageCount = chatRepository.countRealMessagesByConversationId(convo.getId());
-                if (realMessageCount == null || realMessageCount == 0) {
-                    chatRepository.deleteAll(chatRepository.findAllByConversationId(convo.getId()));
-                    conversationRepository.delete(convo);
-                }
-            }
+            disconnectPair(request.getInterestSend(), request.getInterestReceived());
 
             resp.setCode(200);
             resp.setMessage("Interest request deleted successfully");
@@ -538,6 +534,62 @@ public class InterestRequestService {
         } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Error deleting interest request: " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
+    /**
+     * Remove every trace of a connection between two members: BOTH interest rows (a mutual pair
+     * has one in each direction — deleting only the tapped one left the other APPROVED, so
+     * findBetweenUsers still said "connected" and the chat stayed open), and the conversation.
+     *
+     * The conversation is deleted outright only when nobody ever really chatted (only the
+     * auto "I have liked your profile" / "Interest request approved" rows). Once real messages
+     * exist the history is kept and the thread is marked DISCONNECTED — it stays visible in both
+     * chat lists but cannot be opened or written to until an interest is accepted again
+     * (createInterestRequest flips it back to PENDING, approval to ACCEPTED).
+     */
+    private void disconnectPair(Long userA, Long userB) {
+        interestRequestRepository.findByInterestSendAndInterestReceived(userA, userB)
+                .ifPresent(interestRequestRepository::delete);
+        interestRequestRepository.findByInterestSendAndInterestReceived(userB, userA)
+                .ifPresent(interestRequestRepository::delete);
+
+        Long minId = Math.min(userA, userB);
+        Long maxId = Math.max(userA, userB);
+        Conversation convo = conversationRepository.findByUserOneAndUserTwo(minId, maxId);
+        if (convo == null) return;
+        Long realMessageCount = chatRepository.countRealMessagesByConversationId(convo.getId());
+        if (realMessageCount == null || realMessageCount == 0) {
+            chatRepository.deleteAll(chatRepository.findAllByConversationId(convo.getId()));
+            conversationRepository.delete(convo);
+        } else {
+            convo.setStatus(ChatStatus.DISCONNECTED);
+            conversationRepository.save(convo);
+        }
+    }
+
+    /** "Unfriend" from either side — the RECEIVER of an accepted interest had no way to do this. */
+    public ResultResponse removeConnection(String encodedUserId, Long otherUserId) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            Long userId = Long.parseLong(new String(Base64.getDecoder().decode(encodedUserId)));
+            boolean exists = interestRequestRepository.findByInterestSendAndInterestReceived(userId, otherUserId).isPresent()
+                    || interestRequestRepository.findByInterestSendAndInterestReceived(otherUserId, userId).isPresent();
+            if (!exists) {
+                resp.setCode(404);
+                resp.setMessage("No connection found");
+                resp.setStatus(ResponseStatus.FAILURE);
+                return resp;
+            }
+            disconnectPair(userId, otherUserId);
+            resp.setCode(200);
+            resp.setMessage("Connection removed");
+            resp.setStatus(ResponseStatus.SUCCESS);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Error removing connection: " + e.getMessage());
             resp.setStatus(ResponseStatus.FAILURE);
         }
         return resp;
@@ -632,6 +684,16 @@ public class InterestRequestService {
             InterestRequest savedRequest;
             boolean isResend = false;
 
+            // The other member already has a PENDING interest waiting on THIS sender. Sending
+            // one back is the same intent as accepting it, so treat it as a match right away
+            // instead of leaving two pending rows that each side then answers separately.
+            InterestRequest reversePending = interestRequestRepository
+                    .findByInterestSendAndInterestReceived(recvId, sendId)
+                    .filter(rev -> rev.getAcceptStatus() == ApprovalStatus.PENDING)
+                    .orElse(null);
+            boolean mutual = reversePending != null;
+            ApprovalStatus initialStatus = mutual ? ApprovalStatus.APPROVED : ApprovalStatus.PENDING;
+
             if (existingOpt.isPresent()) {
                 InterestRequest existing = existingOpt.get();
                 if (existing.getAcceptStatus() == ApprovalStatus.PENDING
@@ -641,16 +703,71 @@ public class InterestRequestService {
                     resp.setStatus(ResponseStatus.FAILURE);
                     return resp;
                 }
-                // Previously REJECTED — allow sending again by resetting the same row to PENDING
-                existing.setAcceptStatus(ApprovalStatus.PENDING);
+            }
+
+            // 🔴 SEND_REQUEST quota, enforced HERE (2026-09-26). Until now the only counting was
+            // the app's own getRequestQuota → updateUsedCount → send sequence: this endpoint never
+            // looked at the allowance, so a direct call sent unlimited interests with the counter
+            // stuck at 25/25, and a network blip between the app's two calls could charge a request
+            // that was never sent (or send one for free). Checked AFTER the duplicate guard so a
+            // repeat tap is refused without touching the count, and charged only AFTER the row is
+            // written, so a failed insert never costs anything.
+            UserFeatureUsageService.SendRequestQuota quota =
+                    userFeatureUsageService.checkSendRequestQuota(sendId);
+            if (!quota.allowed()) {
+                java.util.Map<String, Object> lim = new HashMap<>();
+                lim.put("limit", quota.limit);
+                lim.put("used", quota.used);
+                resp.setCode(403);
+                resp.setMessage("REQUEST_LIMIT_EXCEEDED");
+                resp.setStatus(ResponseStatus.FAILURE);
+                resp.setData(lim);
+                return resp;
+            }
+
+            if (existingOpt.isPresent()) {
+                InterestRequest existing = existingOpt.get();
+                // Previously REJECTED — allow sending again by resetting the same row
+                existing.setAcceptStatus(initialStatus);
                 savedRequest = interestRequestRepository.save(existing);
                 isResend = true;
             } else {
-                request.setAcceptStatus(ApprovalStatus.PENDING);
+                request.setAcceptStatus(initialStatus);
                 savedRequest = interestRequestRepository.save(request);
             }
 
-            pushNotificationService.sendPushNotificationToUserDirect(recvId, "You've Received an Interest", "Someone has expressed interest in your profile. Check now to see who it is!");
+            // Spend the request now that it exists. Best-effort: a counter hiccup must never turn
+            // an already-created interest into an error for the member.
+            try {
+                userFeatureUsageService.chargeSendRequest(sendId, quota);
+            } catch (Exception e) {
+                System.out.println("Warning: could not charge SEND_REQUEST for user " + sendId + ": " + e.getMessage());
+            }
+
+            if (mutual) {
+                // Approving the reverse row does the rest: conversation → ACCEPTED, the
+                // "Interest request approved" chat line, and the Interest Accepted push to the
+                // member who asked first. No "you've received an interest" push — it's a match.
+                updateInterestRequestStatus(reversePending.getId(), ApprovalStatus.APPROVED.name());
+                resp.setCode(201);
+                resp.setMessage("It's a match — you're now connected");
+                resp.setStatus(ResponseStatus.SUCCESS);
+                resp.setData(savedRequest);
+                return resp;
+            }
+
+            // Paid recipients get the sender's actual name; free ones keep the anonymous form
+            // (which is also the upgrade hook — "Check now to see who it is").
+            UserEntity interestSender = userRepository.findById(sendId).orElse(null);
+            String senderDisplayName = pushNotificationService.nameForRecipient(
+                    recvId,
+                    interestSender != null
+                            ? interestSender.getFirstName() + " " + interestSender.getLastName()
+                            : null);
+            pushNotificationService.sendPushNotificationToUserDirect(
+                    recvId,
+                    "You've Received an Interest",
+                    senderDisplayName + " has expressed interest in your profile. Check now to see who it is!");
             // Create notification for the receiver
             Notification notification = new Notification();
             notification.setSenderId(sendId);
@@ -877,11 +994,15 @@ public class InterestRequestService {
         request.setAcceptStatus(ApprovalStatus.PENDING);
         interestRequestRepository.save(request);
 
-        // 5️⃣ Push notification
+        // 5️⃣ Push notification — paid recipients see who it was, free ones see "Someone".
+        UserEntity sender = userRepository.findById(senderId).orElse(null);
+        String senderName = pushNotificationService.nameForRecipient(
+                receiverId,
+                sender != null ? sender.getFirstName() + " " + sender.getLastName() : null);
         pushNotificationService.sendPushNotificationToUserDirect(
                 receiverId,
                 "You’ve Received an Interest",
-                "Someone has expressed interest in your profile"
+                senderName + " has expressed interest in your profile"
         );
 
         // 6️⃣ Save notification

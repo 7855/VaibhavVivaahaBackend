@@ -26,6 +26,28 @@ import org.springframework.stereotype.Service;
 @Service
 public class RestrictedFieldRequestService {
 
+    /**
+     * Human-readable name for a restricted field, for anything a MEMBER reads.
+     *
+     * The raw values are storage enums (PROFILE_IMAGE, HOROSCOPE, MOBILE) and were being
+     * string-concatenated straight into notification titles and push bodies, so members saw
+     * "A member wants to view your PROFILE_IMAGE". The app's own mailbox screen already maps
+     * these to friendly labels; the notification path never did. Anything user-facing must go
+     * through here — never interpolate the enum directly.
+     */
+    private static String fieldLabel(String fieldType) {
+        if (fieldType == null) return "profile details";
+        switch (fieldType.trim().toUpperCase()) {
+            case "PROFILE_IMAGE": return "profile image";
+            case "HOROSCOPE":     return "horoscope";
+            case "MOBILE":        return "mobile number";
+            case "BIRTH_TIME":    return "birth time";
+            default:
+                // Unknown/new enum: degrade to lowercased words rather than leaking SCREAMING_CASE.
+                return fieldType.trim().toLowerCase().replace('_', ' ');
+        }
+    }
+
     @Autowired
     private RestrictedFieldRequestRepository restrictedFieldRequestRepository;
 
@@ -195,12 +217,12 @@ public class RestrictedFieldRequestService {
             Notification notification = new Notification();
             notification.setSenderId(requestedBy);
             notification.setReceiverId(requestedTo);
-            notification.setMessage("You have received a request to view your " + fieldType);
+            notification.setMessage("You have received a request to view your " + fieldLabel(fieldType) + ".");
             notification.setNotificationCategory(fieldType);
             notification.setTitle("Asking Permission");
             notificationRepository.save(notification);
 
-            pushNotificationService.sendPushNotificationToUser(requestedTo, "🔑 Permission Request", "A member wants to view your " + fieldType + ". Approve or decline the request.");
+            pushNotificationService.sendPushNotificationToUser(requestedTo, "🔑 Permission Request", "A member wants to view your " + fieldLabel(fieldType) + ". Approve or decline the request.");
 
 
             response.setCode(201);
@@ -354,19 +376,34 @@ public class RestrictedFieldRequestService {
         restrictedFieldRequestRepository.save(request);
 
         if (status == ApprovalStatus.APPROVED || status == ApprovalStatus.REJECTED) {
-            UserEntity user = userRepository.findById(request.getRequestedBy()).orElse(null);
+            // The person who approved/declined is requestedTo — this used to look up
+            // requestedBy, i.e. the RECIPIENT's own name, so members read "<your own name> has
+            // accepted your request".
+            UserEntity decidedBy = userRepository.findById(request.getRequestedTo()).orElse(null);
             boolean approved = status == ApprovalStatus.APPROVED;
+            // Free recipients see "Someone"; paid ones see who decided.
+            String decidedByName = pushNotificationService.nameForRecipient(
+                    request.getRequestedBy(),
+                    decidedBy != null ? decidedBy.getFirstName() + " " + decidedBy.getLastName() : null);
             Notification notification = new Notification();
             notification.setSenderId(request.getRequestedTo());
             notification.setReceiverId(request.getRequestedBy());
-            notification.setMessage((user != null ? user.getFirstName() + " " + user.getLastName() : "The member") + (approved
-                    ? " has accepted your request to view " + request.getFieldType()
-                    : " has declined your request to view " + request.getFieldType()));
+            // "their", not "your": the recipient asked to view the OTHER member's field.
+            notification.setMessage(decidedByName + (approved
+                    ? " has accepted your request to view their " + fieldLabel(request.getFieldType()) + "."
+                    : " has declined your request to view their " + fieldLabel(request.getFieldType()) + "."));
             notification.setNotificationCategory(request.getFieldType());
             notification.setTitle(approved ? "Permission Accepted" : "Permission Declined");
             notificationRepository.save(notification);
 
-            pushNotificationService.sendPushNotificationToUser(request.getRequestedBy(), "🔑 Permission Request", "Your request to view " + request.getFieldType() + " has been " + status);
+            // `status` is an enum — interpolating it printed "has been APPROVED" in SCREAMING_CASE,
+            // the same class of leak as the raw fieldType. Also switched to ...Direct: a decision
+            // on the member's OWN request is essential, not a plan-gated discovery alert.
+            pushNotificationService.sendPushNotificationToUserDirect(
+                    request.getRequestedBy(),
+                    approved ? "Permission Approved" : "Permission Declined",
+                    decidedByName + (approved ? " approved" : " declined")
+                            + " your request to view their " + fieldLabel(request.getFieldType()) + ".");
         }
     }
 

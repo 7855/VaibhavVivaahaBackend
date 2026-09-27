@@ -60,6 +60,25 @@ public class UserEntity extends GenericEntity{
     @Column(name = "casteId")
     private Integer casteId;
 
+    /** Optional — always belongs to the caste referenced by casteId. Null = not specified. */
+    @Column(name = "subcasteId")
+    private Long subcasteId;
+
+    /**
+     * Resolved display name for subcasteId. Not persisted — populated on read by the profile
+     * endpoints so the app doesn't need a second lookup just to render the subcaste.
+     */
+    @Transient
+    private String subcasteName;
+
+    /**
+     * True while the member has a running profile boost. Not persisted — set by the list
+     * endpoints that order boosted members first, so the card can show the Boosted ribbon.
+     * Null (absent from JSON) on every endpoint that does not compute it.
+     */
+    @Transient
+    private Boolean hasActiveBoost;
+
     @Column(name = "location")
     private String location;
 
@@ -122,6 +141,14 @@ public class UserEntity extends GenericEntity{
 
     @Column(name = "rejection_reason", length = 500)
     private String rejectionReason;
+
+    /**
+     * Optional message the member writes to the admin when resubmitting a
+     * REJECTED profile (max 250 chars, enforced server-side in
+     * UserService.resubmitProfile). Shown on the admin verification queue.
+     */
+    @Column(name = "resubmission_note", length = 250)
+    private String resubmissionNote;
 
     /**
      * F8 — flipped to true when admin approves an IncomeVerification submission.

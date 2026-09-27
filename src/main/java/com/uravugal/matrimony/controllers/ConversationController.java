@@ -34,11 +34,21 @@ public class ConversationController {
         return resp;
     }
 
-    @GetMapping("/inActiveConversationById/{id}")
-    public ResultResponse inActiveConversationById(@PathVariable Long id) {
+    /**
+     * Remove a conversation from the CALLER's chat list only.
+     *
+     * encodedUserId is required and is verified against the conversation's participants — the
+     * old form took a bare conversation id with no identity at all, so anyone could delete any
+     * two strangers' chat. Kept as the same path prefix plus the id so existing clients fail
+     * loudly (404) rather than silently deleting under the old semantics.
+     */
+    @GetMapping("/inActiveConversationById/{id}/{encodedUserId}")
+    public ResultResponse inActiveConversationById(@PathVariable Long id,
+            @PathVariable String encodedUserId) {
         ResultResponse response = new ResultResponse();
         try {
-            response = conversationService.inActiveConversationById(id);
+            Long requesterId = Long.parseLong(new String(Base64.getDecoder().decode(encodedUserId)));
+            response = conversationService.deleteConversationForUser(id, requesterId);
         } catch (Exception e) {
             response.setCode(500);
             response.setMessage("Something Went Wrong. " + e.getMessage());

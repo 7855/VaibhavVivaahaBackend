@@ -36,7 +36,8 @@ public class AdminController {
     public ResultResponse runDailyMatchNow() {
         ResultResponse resp = new ResultResponse();
         try {
-            Map<String, Object> summary = dailyMatchScheduler.runNow();
+            // force=true: QA wants a send now, even if the 8 AM run already reached everyone today.
+            Map<String, Object> summary = dailyMatchScheduler.runNow(true);
             resp.setCode(200);
             resp.setStatus(ResponseStatus.SUCCESS);
             resp.setMessage("Daily match scheduler executed");
@@ -54,10 +55,12 @@ public class AdminController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String userType,
-            @RequestParam(required = false) String userStatus) {
+            @RequestParam(required = false) String userStatus,
+            @RequestParam(required = false) String plan,
+            @RequestParam(required = false) String search) {
         PaginatedResultResponse resp = new PaginatedResultResponse();
         try {
-            resp = adminService.getAllUsersForAdmin(page, size, userType, userStatus);
+            resp = adminService.getAllUsersForAdmin(page, size, userType, userStatus, plan, search);
         } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Something Went Wrong. " + e.getMessage());
@@ -214,6 +217,37 @@ public class AdminController {
     }
 
     // ==================== PROFILE APPROVAL ====================
+
+    /** Body: { "planId": 5, "adminId": 1? } — activates the plan and emails the member. */
+    @PostMapping("/users/{userId}/assign-plan")
+    public ResultResponse assignPlan(@PathVariable Long userId, @RequestBody java.util.Map<String, Object> body) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            Object planIdObj = body != null ? body.get("planId") : null;
+            if (planIdObj == null) {
+                resp.setCode(400);
+                resp.setMessage("planId is required");
+                resp.setStatus(ResponseStatus.FAILURE);
+                return resp;
+            }
+            Long planId = Long.valueOf(planIdObj.toString());
+            Object adminIdObj = body.get("adminId");
+            Long adminId = adminIdObj != null ? Long.valueOf(adminIdObj.toString()) : null;
+            resp = adminService.assignPlanToUser(userId, planId, adminId);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
+    @GetMapping("/deleted-accounts")
+    public PaginatedResultResponse deletedAccounts(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return adminService.getDeletedAccounts(page, size);
+    }
 
     @PutMapping("/users/{userId}/approve")
     public ResultResponse approveUser(@PathVariable Long userId) {

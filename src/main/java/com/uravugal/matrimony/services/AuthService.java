@@ -88,7 +88,14 @@ public class AuthService {
                 userLeadRepository.save(lead);
 
                 String regName = (firstNameHint != null && !firstNameHint.isBlank()) ? firstNameHint : "there";
-                emailService.sendOtpEmail(email, regName, otp, purpose);
+                if (!emailService.sendOtpEmail(email, regName, otp, purpose)) {
+                    // Both attempts failed — say so instead of "OTP sent successfully"
+                    // while the member waits for a mail that never left.
+                    response.setCode(502);
+                    response.setStatus(ResponseStatus.FAILURE);
+                    response.setMessage("We couldn't send the verification email right now. Please try again in a moment.");
+                    return response;
+                }
 
             } else if ("reset".equalsIgnoreCase(purpose)) {
                 UserEntity user = userRepository.findByEmail(email);
@@ -102,8 +109,19 @@ public class AuthService {
                 user.setOtpCreatedAt(LocalDateTime.now());
                 userRepository.save(user);
 
-                String firstName = user.getFirstName() != null ? user.getFirstName() : "there";
-                emailService.sendOtpEmail(email, firstName, otp, purpose);
+                // Full name — every outbound mail addresses the member by both names.
+                String firstName = java.util.stream.Stream
+                        .of(user.getFirstName(), user.getLastName())
+                        .filter(x -> x != null && !x.isBlank())
+                        .map(String::trim)
+                        .reduce((x, y) -> x + " " + y)
+                        .orElse("there");
+                if (!emailService.sendOtpEmail(email, firstName, otp, purpose)) {
+                    response.setCode(502);
+                    response.setStatus(ResponseStatus.FAILURE);
+                    response.setMessage("We couldn't send the verification email right now. Please try again in a moment.");
+                    return response;
+                }
 
             } else {
                 response.setCode(400);

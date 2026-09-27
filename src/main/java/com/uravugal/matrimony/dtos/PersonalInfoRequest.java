@@ -19,4 +19,7 @@ public class PersonalInfoRequest {
     private String numberOfChildren;
     private String currentAddress;
     private String nativePlace;
+    // Optional subcaste edit. Only applied when non-null, and only if it belongs to the
+    // user's current caste — sending null leaves the existing value untouched.
+    private Long subcasteId;
 }

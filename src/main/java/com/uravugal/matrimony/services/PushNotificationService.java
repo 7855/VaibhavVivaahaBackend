@@ -60,6 +60,42 @@ public class PushNotificationService {
     @Autowired
     private PlanFeaturesRepository planFeaturesRepository;
 
+    /** Free plan id — see subscription_plans / CLAUDE.md section 7. */
+    private static final long FREE_PLAN_ID = 1L;
+
+    /** Shown to free members in place of another member's real name. */
+    private static final String ANONYMOUS_NAME = "Someone";
+
+    /**
+     * Whether this RECIPIENT may see the other member's real name in a notification.
+     *
+     * Free members get "Someone" — knowing who acted on your profile is part of what a paid plan
+     * buys, and it's the main reason a free member upgrades. Note this is about the recipient's
+     * plan, not the actor's.
+     */
+    public boolean canSeeNamesInNotifications(Long recipientUserId) {
+        if (recipientUserId == null) return false;
+        try {
+            UserSubscriptions sub = userSubscriptionsRepository.findTopByUserIdOrderByCreatedAtDesc(recipientUserId);
+            return sub != null
+                    && sub.getSubscriptionPlanId() != null
+                    && sub.getSubscriptionPlanId() != FREE_PLAN_ID;
+        } catch (Exception e) {
+            // Fail CLOSED: on a lookup error show the anonymous form rather than leak a name to
+            // someone who may not be entitled to it.
+            return false;
+        }
+    }
+
+    /**
+     * Real name for paid recipients, "Someone" for free ones.
+     * Use this for any notification body that would otherwise interpolate a member's name.
+     */
+    public String nameForRecipient(Long recipientUserId, String realName) {
+        if (realName == null || realName.trim().isEmpty()) return ANONYMOUS_NAME;
+        return canSeeNamesInNotifications(recipientUserId) ? realName.trim() : ANONYMOUS_NAME;
+    }
+
     public ResultResponse updateFcmTokenForUser(Map<String, String> request) {
         ResultResponse response = new ResultResponse();
 

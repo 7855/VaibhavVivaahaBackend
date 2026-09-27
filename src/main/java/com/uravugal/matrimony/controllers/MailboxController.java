@@ -112,6 +112,14 @@ public class MailboxController {
         return interestRequestService.updateInterestRequestStatus(id, approvalStatus);
     }
 
+    /** Remove an accepted connection from EITHER side (deletes both interest rows). */
+    @DeleteMapping("/removeConnection/{encodedUserId}/{otherUserId}")
+    public ResultResponse removeConnection(
+            @PathVariable String encodedUserId,
+            @PathVariable Long otherUserId) {
+        return interestRequestService.removeConnection(encodedUserId, otherUserId);
+    }
+
     @DeleteMapping("/deleteInterestRequest/{id}")
     public ResultResponse deleteInterestRequest(
             @PathVariable Long id) {

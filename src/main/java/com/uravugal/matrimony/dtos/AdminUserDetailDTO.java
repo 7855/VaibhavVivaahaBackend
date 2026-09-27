@@ -46,6 +46,32 @@ public class AdminUserDetailDTO {
     private String jobPlace;
     private String annualIncome;
 
+    // Everything a member can edit in the app should be editable here too.
+    // hobbies is a JSON ARRAY string in user_details, exactly as the app writes it.
+    private String hobbies;
+    // Religious / astro — stored inside astroInfo[0]
+    private String birthTime;
+    private String moonSign;
+    // basicInfo (a JSON OBJECT with snake_case keys)
+    private String physicalStatus;
+    private String maritalStatus;
+    // user_details columns
+    private String currentAddress;   // presentAddress
+    private String nativePlace;      // permanentAddress
+    // familyInfo (a JSON ARRAY whose [0] holds these snake_case keys)
+    private String familyType;
+    private String familyStatus;
+    private String fatherOccupation;
+    private String motherOccupation;
+    private String noOfBrothers;
+    private String brothersMarried;
+    private String noOfSisters;
+    private String sistersMarried;
+    private Integer subcasteId;
+    private String subcasteName;
+    private String about;
+    private String height;
+
     // Images
     private String profileImage;
     private String horoscope;

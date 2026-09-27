@@ -7,6 +7,8 @@ import com.uravugal.matrimony.enums.ApprovalStatus;
 import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.models.Features;
 import com.uravugal.matrimony.models.InterestRequest;
+import com.uravugal.matrimony.models.Notification;
+import com.uravugal.matrimony.models.UserEntity;
 import com.uravugal.matrimony.models.PlanFeatures;
 import com.uravugal.matrimony.models.ServiceRequest;
 import com.uravugal.matrimony.models.UserSubscriptions;
@@ -49,6 +51,12 @@ public class ServiceRequestService {
 
     @Autowired
     private InterestRequestRepository interestRequestRepository;
+
+    @Autowired
+    private PushNotificationService pushNotificationService;
+
+    @Autowired
+    private com.uravugal.matrimony.repositories.NotificationRepository notificationRepository;
 
     public ResultResponse createRequest(String encodedUserId, String requestType, String note, Long targetUserId) {
         ResultResponse resp = new ResultResponse();
@@ -125,6 +133,17 @@ public class ServiceRequestService {
             sr.setNote(note);
             ServiceRequest saved = serviceRequestRepository.save(sr);
 
+            // The other member must hear about a call request too — until now only the admin
+            // queue saw it, so the person being called had no idea one was coming. Push + an
+            // in-app Notification row, same shape as interest-received. `...Direct` because a
+            // request aimed at YOU is essential, not a plan-gated discovery alert; the name
+            // still goes through nameForRecipient (Free recipients see "Someone"). Best-effort:
+            // the request is already saved, and a notification failure must not turn a
+            // successful request into an error for the requester.
+            if ("VOICE_CALL".equals(requestType) && targetUserId != null) {
+                notifyCallTarget(userId, targetUserId);
+            }
+
             resp.setCode(200);
             resp.setStatus(ResponseStatus.SUCCESS);
             resp.setMessage("Request submitted. Our team will reach out shortly.");
@@ -135,6 +154,28 @@ public class ServiceRequestService {
             resp.setMessage("Error creating request: " + e.getMessage());
         }
         return resp;
+    }
+
+    private void notifyCallTarget(Long requesterId, Long targetUserId) {
+        try {
+            UserEntity requester = userRepository.findById(requesterId).orElse(null);
+            String requesterName = pushNotificationService.nameForRecipient(
+                    targetUserId,
+                    requester != null ? requester.getFirstName() + " " + requester.getLastName() : null);
+            pushNotificationService.sendPushNotificationToUserDirect(
+                    targetUserId,
+                    "Call Request Received",
+                    requesterName + " has requested a call with you. Our team will coordinate a time with both of you.");
+            Notification notification = new Notification();
+            notification.setSenderId(requesterId);
+            notification.setReceiverId(targetUserId);
+            notification.setTitle("Call Request");
+            notification.setMessage("Requested a call with you");
+            notification.setNotificationCategory("CALL_REQUEST");
+            notificationRepository.save(notification);
+        } catch (Exception e) {
+            System.err.println("[service-request] call-request notification failed: " + e.getMessage());
+        }
     }
 
     public PaginatedResultResponse getMyRequests(String encodedUserId, Integer page, Integer size) {

@@ -27,6 +27,32 @@ public class CasteController {
         return resp;
     }
 
+    @GetMapping("/getSubcastesByCasteId/{casteId}")
+    public ResultResponse getSubcastesByCasteId(@PathVariable Long casteId) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            resp = casteService.getSubcastesByCasteId(casteId);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
+    @GetMapping("/getAllActiveSubcastes")
+    public ResultResponse getAllActiveSubcastes() {
+        ResultResponse resp = new ResultResponse();
+        try {
+            resp = casteService.getAllActiveSubcastes();
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
     @PostMapping("/create")
     public ResultResponse createCaste(@RequestBody CasteEntity caste) {
         ResultResponse resp = new ResultResponse();

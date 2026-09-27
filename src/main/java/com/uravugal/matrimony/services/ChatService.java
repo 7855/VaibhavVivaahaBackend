@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import com.uravugal.matrimony.dtos.ResultResponse;
 import com.uravugal.matrimony.enums.ActiveStatus;
 import com.uravugal.matrimony.enums.ResponseStatus;
+import com.uravugal.matrimony.enums.ChatStatus;
 import com.uravugal.matrimony.enums.SubscriptionStatus;
 import com.uravugal.matrimony.models.ChatEntity;
 import com.uravugal.matrimony.models.Conversation;
@@ -59,7 +60,13 @@ public class ChatService {
     public ResultResponse sendChatMessage(ChatEntity request) {
         ResultResponse response = new ResultResponse();
         try {
-            // Block gate: if either side has blocked the other, reject
+            // Block gate. Two very different cases:
+            //  - the SENDER blocked the other member → refuse (they must unblock first);
+            //  - the OTHER member blocked the sender → accept the message but keep it hidden
+            //    from the recipient forever (WhatsApp behaviour: single grey tick, never
+            //    delivered, and the blocked person is never told). Telling them outright
+            //    ("this user has blocked you") was the client's complaint.
+            boolean hiddenFromReceiver = false;
             if (request.getSenderId() != null && request.getConversationId() != null) {
                 Conversation convo = conversationRepository.findById(request.getConversationId()).orElse(null);
                 if (convo != null) {
@@ -67,9 +74,24 @@ public class ChatService {
                     com.uravugal.matrimony.models.BlockedUser block = blockedUserRepository
                             .findByUsersEitherDirection(request.getSenderId(), otherUserId);
                     if (block != null) {
+                        // Client decision 2026-09-19 (reverses the silent WhatsApp-style block of
+                        // 09-17): BOTH sides are told, with different words. The blocker gets
+                        // USER_BLOCKED ("unblock to send" + an Unblock button in the app); the
+                        // blocked member gets BLOCKED_BY_USER. Nothing is stored either way.
                         response.setCode(403);
                         response.setStatus(ResponseStatus.FAILURE);
-                        response.setMessage("USER_BLOCKED");
+                        response.setMessage(request.getSenderId().equals(block.getBlockedByUserId())
+                                ? "USER_BLOCKED" : "BLOCKED_BY_USER");
+                        return response;
+                    }
+
+                    // Connection gate: only an ACCEPTED conversation may carry messages. The app
+                    // already refuses on PENDING; this also covers DISCONNECTED (a member removed
+                    // the connection) so an old screen or a stale chat list cannot keep talking.
+                    if (convo.getStatus() != ChatStatus.ACCEPTED) {
+                        response.setCode(403);
+                        response.setStatus(ResponseStatus.FAILURE);
+                        response.setMessage(convo.getStatus() == ChatStatus.DISCONNECTED ? "NOT_CONNECTED" : "REQUEST_PENDING");
                         return response;
                     }
                 }
@@ -136,14 +158,32 @@ public class ChatService {
             Conversation conversation = conversationRepository.findById(request.getConversationId())
                 .orElseThrow(() -> new RuntimeException("Conversation not found"));
 
-            // getUserChatList now filters to isActive='Y' (needed for the new delete-conversation
-            // feature to actually hide anything). Since isActive is one shared flag on the
-            // conversation row rather than per-participant, deleting it currently hides it for
-            // BOTH sides — so a new message needs to revive it here, mirroring how WhatsApp
-            // brings a deleted chat back into your list the moment the other person messages
-            // you again, rather than leaving it hidden forever.
+            // A new message revives the thread in both members' chat lists, mirroring how
+            // WhatsApp brings a deleted chat back the moment the other person messages you again.
+            //
+            // Deleting is now PER-PARTICIPANT (Conversation.deletedByUserOne/Two) rather than the
+            // shared isActive flag, so clear both of those. isActive is still reset for rows that
+            // were hidden by the old shared-flag behaviour before this change shipped.
+            boolean revived = false;
             if (conversation.getIsActive() != ActiveStatus.Y) {
                 conversation.setIsActive(ActiveStatus.Y);
+                revived = true;
+            }
+            if (hiddenFromReceiver) {
+                // A suppressed message must not resurface the thread for the member who blocked
+                // — only the sender's own side is un-hidden.
+                boolean senderIsOne = conversation.getUserOne().equals(request.getSenderId());
+                if (senderIsOne && Boolean.TRUE.equals(conversation.getDeletedByUserOne())) {
+                    conversation.setDeletedByUserOne(Boolean.FALSE); revived = true;
+                } else if (!senderIsOne && Boolean.TRUE.equals(conversation.getDeletedByUserTwo())) {
+                    conversation.setDeletedByUserTwo(Boolean.FALSE); revived = true;
+                }
+            } else if (Boolean.TRUE.equals(conversation.getDeletedByUserOne())
+                    || Boolean.TRUE.equals(conversation.getDeletedByUserTwo())) {
+                conversation.clearDeletedFlags();
+                revived = true;
+            }
+            if (revived) {
                 conversationRepository.save(conversation);
             }
 
@@ -153,8 +193,23 @@ public class ChatService {
             chatMessage.setMessage(request.getMessage());
             chatMessage.setIsRead(false);
             chatMessage.setIsActive(ActiveStatus.Y);
+            chatMessage.setHiddenFromReceiver(hiddenFromReceiver);
+            // Double grey tick straight away when the recipient's device is connected right now.
+            Long deliverTo = conversation.getUserOne().equals(request.getSenderId())
+                    ? conversation.getUserTwo() : conversation.getUserOne();
+            boolean deliveredNow = !hiddenFromReceiver && UserWebSocketHandler.isUserOnline(deliverTo);
+            chatMessage.setIsDelivered(deliveredNow);
 
             chatRepository.save(chatMessage);
+            response.setData(java.util.Map.of("id", chatMessage.getId(), "delivered", deliveredNow));
+
+            if (hiddenFromReceiver) {
+                // Never delivered: no in-app notification, no push, no WebSocket event.
+                response.setCode(200);
+                response.setStatus(ResponseStatus.SUCCESS);
+                response.setMessage("Message sent successfully");
+                return response;
+            }
 
             // ✅ Identify receiver (the other participant in the conversation)
             Long receiverId = conversation.getUserOne().equals(request.getSenderId())
@@ -170,7 +225,11 @@ public class ChatService {
                 Notification notification = new Notification();
                 notification.setSenderId(sender.getUserId());
                 notification.setReceiverId(receiverId);
-                notification.setMessage("sent you a message. ' " + request.getMessage() + "'");
+                // A free member cannot open the chat, so the notification must not carry the
+                // message text either — they learn that someone wrote, not what.
+                notification.setMessage(canReadMessages(receiverId)
+                        ? "sent you a message. ' " + request.getMessage() + "'"
+                        : "sent you a message. Upgrade to read it.");
                 notification.setNotificationCategory("MESSAGE");
                 notification.setTitle("New Message");
                 notificationRepository.save(notification);
@@ -182,11 +241,17 @@ public class ChatService {
                 String senderName = sender.getFirstName() + " " + sender.getLastName();
                 final Long finalReceiverId = receiverId;
                 final String finalSenderName = senderName;
+                // Direct (plan-gate bypassed): a received chat message is an essential
+                // notification every member gets, paid or not. Discovery-style alerts
+                // (profile views, likes, shortlists, daily matches) stay plan-gated.
                 java.util.concurrent.CompletableFuture.runAsync(() ->
-                    pushNotificationService.sendPushNotificationToUser(
+                    pushNotificationService.sendPushNotificationToUserDirect(
                             finalReceiverId,
                             "New Message",
-                            finalSenderName + " sent you a message. Tap to read it now!")
+                            // Free recipients see "Someone sent you a message" — the sender's
+                            // identity is a paid-plan benefit. Resolved per recipient.
+                            pushNotificationService.nameForRecipient(finalReceiverId, finalSenderName)
+                                    + " sent you a message. Tap to read it now!")
                 );
 
                 // ✅ Push message to recipient via WebSocket for real-time delivery
@@ -212,10 +277,115 @@ public class ChatService {
         return response;
     }
 
+    /**
+     * A member's device just connected. Everything that was waiting for them is now DELIVERED
+     * (single → double grey tick); each sender who is online is told so their open chat can
+     * update without a refetch loop.
+     */
+    public void onUserConnected(Long userId) {
+        try {
+            List<Object[]> pending = chatRepository.findUndeliveredForReceiver(userId);
+            if (pending.isEmpty()) return;
+            chatRepository.markDeliveredForReceiver(userId);
+            for (Object[] row : pending) {
+                Long conversationId = ((Number) row[0]).longValue();
+                Long senderId = ((Number) row[1]).longValue();
+                UserWebSocketHandler.sendMessageToUser(senderId, String.format(
+                        "{\"type\":\"message_delivered\",\"data\":{\"conversationId\":\"%d\",\"deliveredToUserId\":\"%d\"}}",
+                        conversationId, userId));
+            }
+        } catch (Exception e) {
+            System.out.println("⚠️ onUserConnected(" + userId + ") failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Push online / last-seen to everyone this member shares a conversation with, so an open
+     * chat header flips instantly instead of waiting on the app's fallback poll.
+     */
+    public void broadcastPresence(Long userId, boolean online) {
+        try {
+            // ⚠️ Instant, NOT LocalDateTime. LocalDateTime.now() serialises with no zone and in
+            // the SERVER's local time (IST), while the REST getUserOnlineStatus answer for the
+            // same field comes back as UTC — also unmarked. Two unmarked values 5h30m apart down
+            // one code path: whichever the app assumed, the other rendered 5h30m wrong. Instant
+            // ends in 'Z', so the app can trust the marker instead of guessing.
+            String payload = String.format(
+                    "{\"type\":\"presence\",\"data\":{\"userId\":\"%d\",\"isOnline\":%s,\"lastSeen\":\"%s\"}}",
+                    userId, online, java.time.Instant.now());
+            for (Object partner : conversationRepository.findPartnerIds(userId)) {
+                if (partner == null) continue;
+                Long partnerId = ((Number) partner).longValue();
+                if (UserWebSocketHandler.isUserOnline(partnerId)) {
+                    UserWebSocketHandler.sendMessageToUser(partnerId, payload);
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("⚠️ broadcastPresence(" + userId + ") failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Does this member's ACTIVE plan carry the MESSAGE feature? Free (plan 1) and any plan
+     * without a MESSAGE row cannot read chats — the app shows them an upgrade wall — so
+     * message TEXT must not leak to them through previews or notifications either.
+     */
+    public boolean canReadMessages(Long userId) {
+        if (userId == null) return false;
+        try {
+            UserSubscriptions sub = userSubscriptionsRepository
+                    .findTopByUserIdAndStatusOrderByEndDateDesc(userId, SubscriptionStatus.ACTIVE)
+                    .orElse(null);
+            if (sub == null || sub.getSubscriptionPlanId() == null || sub.getSubscriptionPlanId() == 1) return false;
+            Features messageFeature = featuresRepository.findByCode("MESSAGE");
+            if (messageFeature == null) return true;
+            return planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(
+                    messageFeature.getId(), sub.getSubscriptionPlanId()) != null;
+        } catch (Exception e) {
+            return false; // fail closed
+        }
+    }
+
     public ResultResponse getActiveChatsByConversation(Long conversationId) {
+        return getActiveChatsByConversation(conversationId, null);
+    }
+
+    /**
+     * Incremental sync (see ChatRepository.findVisibleAfter). Returns an OBJECT, unlike the legacy
+     * array form below, so old app builds that call without `after` are unaffected:
+     *   { messages: [...newer than afterId], readUpToId, deliveredUpToId, status }
+     * `status` rides along so the app needs no second call to learn a chat was DISCONNECTED.
+     */
+    public ResultResponse syncConversation(Long conversationId, Long viewerId, Long afterId) {
         ResultResponse response = new ResultResponse();
         try {
-            List<ChatEntity> chatMessages = chatRepository.findAllByConversationIdAndIsActive(conversationId, ActiveStatus.Y);
+            long viewer = viewerId != null ? viewerId : -1L;
+            long after = afterId != null && afterId > 0 ? afterId : 0L;
+            java.util.Map<String, Object> data = new java.util.HashMap<>();
+            data.put("messages", chatRepository.findVisibleAfter(conversationId, ActiveStatus.Y, viewer, after));
+            data.put("readUpToId", chatRepository.maxReadId(conversationId, viewer));
+            data.put("deliveredUpToId", chatRepository.maxDeliveredId(conversationId, viewer));
+            conversationRepository.findById(conversationId)
+                    .ifPresent(c -> data.put("status", String.valueOf(c.getStatus())));
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage("Conversation synced.");
+            response.setData(data);
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Error syncing conversation: " + e.getMessage());
+        }
+        return response;
+    }
+
+    /** viewerId (optional) drops messages that are hidden from this viewer — see ChatEntity.hiddenFromReceiver. */
+    public ResultResponse getActiveChatsByConversation(Long conversationId, Long viewerId) {
+        ResultResponse response = new ResultResponse();
+        try {
+            List<ChatEntity> chatMessages = viewerId != null
+                    ? chatRepository.findVisibleByConversationForViewer(conversationId, ActiveStatus.Y, viewerId)
+                    : chatRepository.findAllByConversationIdAndIsActive(conversationId, ActiveStatus.Y);
 
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);

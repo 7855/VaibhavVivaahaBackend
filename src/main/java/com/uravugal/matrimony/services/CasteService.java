@@ -4,7 +4,9 @@ import com.uravugal.matrimony.dtos.ResultResponse;
 import com.uravugal.matrimony.enums.ActiveStatus;
 import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.models.CasteEntity;
+import com.uravugal.matrimony.models.SubCasteEntity;
 import com.uravugal.matrimony.repositories.CasteRepository;
+import com.uravugal.matrimony.repositories.SubCasteRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -16,6 +18,43 @@ public class CasteService {
 
     @Autowired
     private CasteRepository casteRepository;
+
+    @Autowired
+    private SubCasteRepository subCasteRepository;
+
+    public ResultResponse getSubcastesByCasteId(Long casteId) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            List<SubCasteEntity> subcastes = subCasteRepository
+                    .findByCasteIdAndIsActiveOrderBySubcasteNameAsc(casteId, ActiveStatus.Y);
+            resp.setCode(200);
+            resp.setMessage("Subcastes fetched successfully");
+            resp.setStatus(ResponseStatus.SUCCESS);
+            resp.setData(subcastes);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Error fetching subcastes: " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
+    public ResultResponse getAllActiveSubcastes() {
+        ResultResponse resp = new ResultResponse();
+        try {
+            List<SubCasteEntity> subcastes = subCasteRepository
+                    .findByIsActiveOrderByCasteIdAscSubcasteNameAsc(ActiveStatus.Y);
+            resp.setCode(200);
+            resp.setMessage("Subcastes fetched successfully");
+            resp.setStatus(ResponseStatus.SUCCESS);
+            resp.setData(subcastes);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Error fetching subcastes: " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
 
     public ResultResponse getAllByActiveStatus() {
         ResultResponse resp = new ResultResponse();

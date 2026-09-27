@@ -46,9 +46,32 @@ public class UserSubscriptionsService {
     public ResultResponse createUserSubscription(UserSubscriptions userSubscriptions) {
         ResultResponse response = new ResultResponse();
         try {
+            // Retired plans (isActive = 'N') can't be sold to anyone new. This only blocks the
+            // creation of a NEW subscription — members already holding that plan keep their
+            // entitlements, which are resolved from planFeatures by plan id, not from this flag.
+            if (userSubscriptions != null && userSubscriptions.getSubscriptionPlanId() != null) {
+                SubscriptionPlan requestedPlan = subscriptionPlanRepository
+                        .findById(userSubscriptions.getSubscriptionPlanId()).orElse(null);
+                if (requestedPlan == null) {
+                    response.setCode(404);
+                    response.setStatus(ResponseStatus.FAILURE);
+                    response.setMessage("Subscription Plan not found with ID: "
+                            + userSubscriptions.getSubscriptionPlanId());
+                    return response;
+                }
+                if (requestedPlan.getIsActive() != ActiveStatus.Y) {
+                    response.setCode(400);
+                    response.setStatus(ResponseStatus.FAILURE);
+                    response.setMessage("SUBSCRIPTION_PLAN_INACTIVE: '" + requestedPlan.getTitle()
+                            + "' is no longer offered.");
+                    return response;
+                }
+            }
+
             UserSubscriptions savedSubscription = userSubscriptionsRepository.save(userSubscriptions);
 
             if (savedSubscription != null) {
+                SubscriptionActivationService.notifyPlanChanged(savedSubscription.getUserId(), null);
                 List<PlanFeatures> planFeatures = planFeaturesRepository
                         .findBySubscriptionPlanId(savedSubscription.getSubscriptionPlanId());
 

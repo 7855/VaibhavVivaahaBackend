@@ -44,6 +44,28 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
             @Param("casteId") Integer casteId,
             @Param("active") ActiveStatus active);
 
+    /**
+     * SUBCASTE FILTERING (applies to both advanceFilter and normalFilter):
+     *
+     *  WHERE  — an explicit subcaste filter also admits members who explicitly chose "Others".
+     *           They may well BE the searched subcaste and simply didn't know it, so excluding
+     *           them would shrink results for no good reason. Members with NO subcaste at all
+     *           are NOT admitted — that is not an opt-in, and including them would make the
+     *           filter a no-op against legacy data where every row is null.
+     *  ORDER  — those "Others" members are then ranked LAST, so exact matches always come
+     *           first. Driven by the scalar subcasteFilterApplied flag (0/1), never by the
+     *           subcasteIds list: Hibernate expands an IN-list parameter once per occurrence,
+     *           and referencing it more than twice corrupts native-query binding (it fails with
+     *           a misleading "No argument for named parameter ':occupation'").
+     *           When no subcaste filter is applied the flag is 0 and every row scores 0, so an
+     *           unfiltered search never penalises members who chose "Others".
+     *           This key sits ABOVE boost/plan-tier, so relevance groups the list while boost
+     *           still orders profiles WITHIN each group.
+     *
+     * NOTE: do NOT put -- comments inside these query strings. Hibernate scans the raw SQL for
+     * ":name" parameters without skipping comments, so a comment that merely mentions a
+     * parameter registers a phantom binding and the whole query fails to parse at startup.
+     */
     @Query(value = """
             SELECT
                 u.userId,
@@ -74,16 +96,21 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
               AND u.isUser != 'ADM'
               AND (:gender IS NULL OR u.gender = :gender)
               AND (:casteId IS NULL OR u.casteId = :casteId)
+              AND (
+                  COALESCE(:subcasteIds) IS NULL
+                  OR u.subcasteId IN (:subcasteIds)
+                  OR u.subcasteId IN (SELECT so.id FROM subcastes so WHERE so.subcasteName = 'Others')
+              )
               AND (:minAge IS NULL OR TIMESTAMPDIFF(YEAR, u.dob, CURDATE()) >= :minAge)
               AND (:maxAge IS NULL OR TIMESTAMPDIFF(YEAR, u.dob, CURDATE()) <= :maxAge)
               AND (
                    (:minAnnualIncome IS NULL AND :maxAnnualIncome IS NULL)
                 OR (:minAnnualIncome IS NOT NULL AND :maxAnnualIncome IS NULL
-                     AND CAST(ud.annualIncome AS UNSIGNED) >= :minAnnualIncome)
+                     AND (CASE WHEN ud.annualIncome REGEXP '^[0-9]+$' THEN CAST(ud.annualIncome AS UNSIGNED) ELSE CAST(REGEXP_SUBSTR(ud.annualIncome, '^[0-9]+') AS UNSIGNED) * 100000 END) >= :minAnnualIncome)
                 OR (:minAnnualIncome IS NULL AND :maxAnnualIncome IS NOT NULL
-                     AND CAST(ud.annualIncome AS UNSIGNED) <= :maxAnnualIncome)
+                     AND (CASE WHEN ud.annualIncome REGEXP '^[0-9]+$' THEN CAST(ud.annualIncome AS UNSIGNED) ELSE CAST(REGEXP_SUBSTR(ud.annualIncome, '^[0-9]+') AS UNSIGNED) * 100000 END) <= :maxAnnualIncome)
                 OR (:minAnnualIncome IS NOT NULL AND :maxAnnualIncome IS NOT NULL
-                     AND CAST(ud.annualIncome AS UNSIGNED) BETWEEN :minAnnualIncome AND :maxAnnualIncome)
+                     AND (CASE WHEN ud.annualIncome REGEXP '^[0-9]+$' THEN CAST(ud.annualIncome AS UNSIGNED) ELSE CAST(REGEXP_SUBSTR(ud.annualIncome, '^[0-9]+') AS UNSIGNED) * 100000 END) BETWEEN :minAnnualIncome AND :maxAnnualIncome)
               )
               AND (:location IS NULL OR u.location = :location)
               AND (COALESCE(:occupation) IS NULL OR ud.occupation IN (:occupation))
@@ -108,6 +135,9 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                   OR (:profilesWithHoroscope = 'Y' AND ud.horoscope IS NOT NULL)
               )
             ORDER BY
+               CASE WHEN :subcasteFilterApplied = 0 THEN 0
+                    WHEN u.subcasteId IN (SELECT so2.id FROM subcastes so2 WHERE so2.subcasteName = 'Others') THEN 1
+                    ELSE 0 END ASC,
                CASE WHEN pb.id IS NOT NULL THEN 1 ELSE 0 END DESC,
                CASE WHEN sp.id IN (5, 6) THEN 1 ELSE 0 END DESC,
                CASE sp.id
@@ -123,6 +153,8 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
     List<FilteredUserPlanView> advanceFilter(
             @Param("gender") String gender,
             @Param("casteId") Integer casteId,
+            @Param("subcasteIds") List<Long> subcasteIds,
+            @Param("subcasteFilterApplied") Integer subcasteFilterApplied,
             @Param("minAge") Integer minAge,
             @Param("maxAge") Integer maxAge,
             @Param("minAnnualIncome") Integer minAnnualIncome,
@@ -196,6 +228,11 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
               AND u.isUser != 'ADM'
               AND (:gender IS NULL OR u.gender = :gender)
               AND (:casteId IS NULL OR u.casteId = :casteId)
+              AND (
+                  COALESCE(:subcasteIds) IS NULL
+                  OR u.subcasteId IN (:subcasteIds)
+                  OR u.subcasteId IN (SELECT so.id FROM subcastes so WHERE so.subcasteName = 'Others')
+              )
               AND (:minAge IS NULL OR TIMESTAMPDIFF(YEAR, u.dob, CURDATE()) >= :minAge)
               AND (:maxAge IS NULL OR TIMESTAMPDIFF(YEAR, u.dob, CURDATE()) <= :maxAge)
               AND (:location IS NULL OR u.location = :location)
@@ -206,6 +243,9 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                     OR (:profileImageStatus = 'Y' AND u.profileImage IS NOT NULL)
                   )
             ORDER BY
+               CASE WHEN :subcasteFilterApplied = 0 THEN 0
+                    WHEN u.subcasteId IN (SELECT so2.id FROM subcastes so2 WHERE so2.subcasteName = 'Others') THEN 1
+                    ELSE 0 END ASC,
                CASE WHEN pb.id IS NOT NULL THEN 1 ELSE 0 END DESC,
                CASE WHEN sp.id IN (5, 6) THEN 1 ELSE 0 END DESC,
                CASE sp.id
@@ -222,6 +262,8 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
             @Param("active") String active,
             @Param("gender") String gender,
             @Param("casteId") Integer casteId,
+            @Param("subcasteIds") List<Long> subcasteIds,
+            @Param("subcasteFilterApplied") Integer subcasteFilterApplied,
             @Param("minAge") Integer minAge,
             @Param("maxAge") Integer maxAge,
             @Param("location") String location,
@@ -263,7 +305,8 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                 u.userStatus AS approvalStatus,
                 u.createdAt AS createdOn,
                 u.isActive,
-                u.isUser
+                u.isUser,
+                u.resubmission_note
             FROM users u
             LEFT JOIN user_details ud ON u.userId = ud.userId
             LEFT JOIN castes c ON u.casteId = c.id
@@ -279,9 +322,42 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
             LEFT JOIN subscription_plans sp ON latest_sub.subscriptionPlanId = sp.id
             WHERE (:userType IS NULL OR u.isUser = :userType)
               AND (:userStatus IS NULL OR u.userStatus = :userStatus)
+              AND (:plan IS NULL OR sp.title = :plan)
+              AND (:search IS NULL
+                   OR u.firstName LIKE CONCAT('%', :search, '%')
+                   OR u.lastName  LIKE CONCAT('%', :search, '%')
+                   OR CONCAT(u.firstName, ' ', u.lastName) LIKE CONCAT('%', :search, '%')
+                   OR u.email     LIKE CONCAT('%', :search, '%')
+                   OR u.mobile    LIKE CONCAT('%', :search, '%')
+                   OR u.memberId  LIKE CONCAT('%', :search, '%'))
             ORDER BY u.createdAt DESC
-            """, countQuery = "SELECT COUNT(*) FROM users u WHERE (:userType IS NULL OR u.isUser = :userType) AND (:userStatus IS NULL OR u.userStatus = :userStatus)", nativeQuery = true)
-    Page<Object[]> findAllUsersForAdmin(@org.springframework.data.repository.query.Param("userType") String userType, @org.springframework.data.repository.query.Param("userStatus") String userStatus, Pageable pageable);
+            """,
+            // ⚠ The count must see the SAME joins and predicates as the page, or the pager's
+            // total is for a different set than the rows — hence the latest-sub join is repeated.
+            countQuery = """
+            SELECT COUNT(*) FROM users u
+            LEFT JOIN (
+                SELECT us1.userId, us1.subscriptionPlanId FROM user_subscriptions us1
+                WHERE us1.id = (SELECT us2.id FROM user_subscriptions us2 WHERE us2.userId = us1.userId
+                                ORDER BY us2.createdAt DESC LIMIT 1)
+            ) latest_sub ON u.userId = latest_sub.userId
+            LEFT JOIN subscription_plans sp ON latest_sub.subscriptionPlanId = sp.id
+            WHERE (:userType IS NULL OR u.isUser = :userType)
+              AND (:userStatus IS NULL OR u.userStatus = :userStatus)
+              AND (:plan IS NULL OR sp.title = :plan)
+              AND (:search IS NULL
+                   OR u.firstName LIKE CONCAT('%', :search, '%')
+                   OR u.lastName  LIKE CONCAT('%', :search, '%')
+                   OR CONCAT(u.firstName, ' ', u.lastName) LIKE CONCAT('%', :search, '%')
+                   OR u.email     LIKE CONCAT('%', :search, '%')
+                   OR u.mobile    LIKE CONCAT('%', :search, '%')
+                   OR u.memberId  LIKE CONCAT('%', :search, '%'))
+            """, nativeQuery = true)
+    Page<Object[]> findAllUsersForAdmin(@org.springframework.data.repository.query.Param("userType") String userType,
+                                        @org.springframework.data.repository.query.Param("userStatus") String userStatus,
+                                        @org.springframework.data.repository.query.Param("plan") String plan,
+                                        @org.springframework.data.repository.query.Param("search") String search,
+                                        Pageable pageable);
 
     @Query(value = """
             SELECT
@@ -292,20 +368,23 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                 u.dob,
                 u.age,
                 ud.weight,
-                JSON_UNQUOTE(JSON_EXTRACT(ud.familyInfo, '$.fatherName')) AS fatherName,
-                JSON_UNQUOTE(JSON_EXTRACT(ud.familyInfo, '$.motherName')) AS motherName,
-                JSON_UNQUOTE(JSON_EXTRACT(ud.languages, '$[0]')) AS motherLanguage,
+                NULLIF(JSON_UNQUOTE(COALESCE(JSON_EXTRACT(ud.familyInfo, '$[0].father'),
+                                      JSON_EXTRACT(ud.familyInfo, '$.fatherName'))), 'null') AS fatherName,
+                NULLIF(JSON_UNQUOTE(COALESCE(JSON_EXTRACT(ud.familyInfo, '$[0].mother'),
+                                      JSON_EXTRACT(ud.familyInfo, '$.motherName'))), 'null') AS motherName,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.languages, '$[0]')), 'null') AS motherLanguage,
                 u.profileCreated,
                 u.userStatus,
                 u.email,
                 u.mobile,
                 u.location,
-                JSON_UNQUOTE(JSON_EXTRACT(ud.basicInfo, '$.placeOfBirth')) AS placeOfBirth,
+                NULLIF(JSON_UNQUOTE(COALESCE(JSON_EXTRACT(ud.basicInfo, '$.place_of_birth'),
+                                      JSON_EXTRACT(ud.basicInfo, '$.placeOfBirth'))), 'null') AS placeOfBirth,
                 u.pin,
                 u.casteId,
                 c.casteName,
-                JSON_UNQUOTE(JSON_EXTRACT(ud.astroInfo, '$[0].star')) AS star,
-                JSON_UNQUOTE(JSON_EXTRACT(ud.astroInfo, '$[0].dosham')) AS dosham,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.astroInfo, '$[0].star')), 'null') AS star,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.astroInfo, '$[0].dosham')), 'null') AS dosham,
                 ud.degree,
                 ud.educationInDetail,
                 ud.employedAt,
@@ -313,10 +392,30 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                 ud.jobPlace,
                 ud.annualIncome,
                 u.profileImage,
-                ud.horoscope
+                ud.horoscope,
+                ud.hobbies,
+                ud.about,
+                ud.height,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.astroInfo, '$[0].birth_time')), 'null') AS birthTime,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.astroInfo, '$[0].moon_sign')), 'null') AS moonSign,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.basicInfo, '$.physical_status')), 'null') AS physicalStatus,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.basicInfo, '$.marital_status')), 'null') AS maritalStatus,
+                ud.presentAddress,
+                ud.permanentAddress,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.familyInfo, '$[0].family_type')), 'null') AS familyType,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.familyInfo, '$[0].family_status')), 'null') AS familyStatus,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.familyInfo, '$[0].father_occupation')), 'null') AS fatherOccupation,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.familyInfo, '$[0].mother_occupation')), 'null') AS motherOccupation,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.familyInfo, '$[0].no_of_brother')), 'null') AS noOfBrothers,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.familyInfo, '$[0].brother_married')), 'null') AS brothersMarried,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.familyInfo, '$[0].no_of_sister')), 'null') AS noOfSisters,
+                NULLIF(JSON_UNQUOTE(JSON_EXTRACT(ud.familyInfo, '$[0].sister_married')), 'null') AS sistersMarried,
+                u.subcasteId,
+                sc.subcasteName
             FROM users u
             LEFT JOIN user_details ud ON u.userId = ud.userId
             LEFT JOIN castes c ON u.casteId = c.id
+            LEFT JOIN subcastes sc ON u.subcasteId = sc.id
             WHERE u.userId = :userId
             """, nativeQuery = true)
     List<Object[]> findUserDetailForAdmin(@Param("userId") Long userId);

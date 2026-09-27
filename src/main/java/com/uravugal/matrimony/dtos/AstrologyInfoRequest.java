@@ -12,4 +12,7 @@ public class AstrologyInfoRequest {
     private String moonSign;
     private String dosham;
     private String sunSign;
+    // Stored in astroInfo[0].birth_time beside star/moon_sign/dosham — it is astro data and is
+    // read together with the horoscope. Free text ("10:45 PM"); no format is imposed.
+    private String birthTime;
 }

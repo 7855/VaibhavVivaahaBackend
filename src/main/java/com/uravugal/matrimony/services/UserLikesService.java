@@ -81,49 +81,46 @@ public class UserLikesService {
     
             UserLikes savedLike = userLikesRepository.save(userLikeRequest);
     
-            // ✅ Check NOTIFICATIONS feature for the liked user
-            Features notificationsFeature = featuresRepository.findByCode("NOTIFICATIONS");
-    
-            if (notificationsFeature != null) {
-                // Get liked user's active subscription
-                List<UserSubscriptions> userSubscriptions = userSubscriptionsRepository
-                        .findByUserIdAndStatus(likedUserId, SubscriptionStatus.ACTIVE);
-    
-                // Only allow notifications for non-free plans
-                if (!userSubscriptions.isEmpty() && !userSubscriptions.get(0).getId().equals(1L)) {
-    
-                    // Check if NOTIFICATIONS feature is part of the liked user's plan
-                    PlanFeatures planFeature = planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(
-                            notificationsFeature.getId(),
-                            userSubscriptions.get(0).getSubscriptionPlanId());
-    
-                    if (planFeature != null) {
-                        // Fetch both users for names and notification
-                        UserEntity receiver = userRepository.findById(likedUserId).orElse(null);
-                        UserEntity sender = userRepository.findById(likerUserId).orElse(null);
-    
-                        if (receiver != null && sender != null) {
-                            // Save notification
-                            Notification notification = new Notification();
-                            notification.setSenderId(likerUserId);
-                            notification.setReceiverId(likedUserId);
-                            notification.setMessage("liked your profile.");
-                            notification.setNotificationCategory("LIKE");
-                            notification.setTitle("New Like Received");
-                            notificationRepository.save(notification);
-    
-                            // Send push notification
-                            String senderName = sender.getFirstName() + " " + sender.getLastName();
-                            pushNotificationService.sendPushNotificationToUser(
-                                    likedUserId,
-                                    "New Like Received",
-                                    senderName + " liked your profile! Check it out now."
-                            );
-                        }
-                    }
-                }
+            // A like now notifies EVERY recipient, free or paid — what differs is the NAME.
+            // Before this, the whole block sat behind a plan gate, so a Free member was told
+            // nothing at all: no push, and no row in their in-app list either. That is the
+            // reported bug (Bala Kumar V liked Arun Kumar; Arun got nothing).
+            //
+            // 🔴 The gate was also testing the wrong column: `userSubscriptions.get(0).getId()`
+            // is the user_subscriptions ROW's primary key, not the plan — so whether anyone got
+            // a like notification depended on an arbitrary row id rather than their plan.
+            //
+            // Paid recipients see the liker's name; free recipients see "Someone", which is the
+            // upsell ("upgrade to see who"). nameForRecipient fails CLOSED — a lookup error
+            // yields the anonymous form rather than leaking a name.
+            UserEntity receiver = userRepository.findById(likedUserId).orElse(null);
+            UserEntity sender = userRepository.findById(likerUserId).orElse(null);
+
+            if (receiver != null && sender != null) {
+                String realName = (sender.getFirstName() + " " + sender.getLastName()).trim();
+                String displayName = pushNotificationService.nameForRecipient(likedUserId, realName);
+
+                // In-app row. The message carries the resolved name because
+                // NotificationService masks the separate userName field for free recipients
+                // too — both have to agree or the list contradicts itself.
+                Notification notification = new Notification();
+                notification.setSenderId(likerUserId);
+                notification.setReceiverId(likedUserId);
+                notification.setMessage(displayName + " liked your profile.");
+                notification.setNotificationCategory("LIKE");
+                notification.setTitle("New Like Received");
+                notificationRepository.save(notification);
+
+                // ...Direct, NOT sendPushNotificationToUser: the gated variant skips Free and
+                // Starter and returns SUCCESS while sending nothing, which is the other half of
+                // why this was silent.
+                pushNotificationService.sendPushNotificationToUserDirect(
+                        likedUserId,
+                        "New Like Received",
+                        displayName + " liked your profile! Check it out now."
+                );
             }
-    
+
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);
             response.setMessage("Like created successfully");

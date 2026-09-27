@@ -18,6 +18,9 @@ public interface ProfileBoostRepository extends JpaRepository<ProfileBoost, Long
     /** Find all boosts that have expired but are still marked ACTIVE (for the scheduler). */
     List<ProfileBoost> findAllByStatusAndExpiresAtBefore(String status, LocalDateTime now);
 
+    /** Boosts still running: used to float boosted members to the top of a list. */
+    List<ProfileBoost> findAllByStatusAndExpiresAtAfter(String status, LocalDateTime now);
+
     /** Admin: paginated list newest first. */
     Page<ProfileBoost> findAllByOrderByIdDesc(Pageable pageable);
 

@@ -15,6 +15,7 @@ import com.uravugal.matrimony.enums.ResponseStatus;
 import com.uravugal.matrimony.models.Features;
 import com.uravugal.matrimony.models.InterestRequest;
 import com.uravugal.matrimony.models.PlanFeatures;
+import com.uravugal.matrimony.models.SubCasteEntity;
 import com.uravugal.matrimony.models.UserDetailEntity;
 import com.uravugal.matrimony.models.UserEntity;
 import com.uravugal.matrimony.models.UserSubscriptions;
@@ -59,6 +60,9 @@ public class UserService {
     private UserRepository userRepository;
 
     @Autowired
+    private com.uravugal.matrimony.repositories.DeletedAccountRepository deletedAccountRepository;
+
+    @Autowired
     private UserDetailRepository userDetailRepository;
 
     @Autowired
@@ -92,12 +96,34 @@ public class UserService {
     private com.uravugal.matrimony.repositories.BlockedUserRepository blockedUserRepository;
 
     @Autowired
+    private com.uravugal.matrimony.repositories.ProfileBoostRepository profileBoostRepository;
+
+    @Autowired
     private FeaturesRepository featuresRepository;
 
     @Autowired
     private PlanFeaturesRepository planFeaturesRepository;
 
+    @Autowired
+    private com.uravugal.matrimony.repositories.SubCasteRepository subCasteRepository;
+
     private static final String AWS_BASE_PATH = "profile-images/";
+
+    /**
+     * Fills the transient subcasteName on a user so the app can render the subcaste without a
+     * second lookup. Null-safe and fail-soft — a missing/deleted subcaste row just leaves the
+     * name null rather than breaking the whole profile response.
+     */
+    private void resolveSubcasteName(UserEntity user) {
+        try {
+            if (user != null && user.getSubcasteId() != null) {
+                SubCasteEntity subCaste = subCasteRepository.findById(user.getSubcasteId()).orElse(null);
+                if (subCaste != null) {
+                    user.setSubcasteName(subCaste.getSubcasteName());
+                }
+            }
+        } catch (Exception ignored) { }
+    }
 
     public ResultResponse sendOtp(String mobileNumber) {
         ResultResponse resp = new ResultResponse();
@@ -156,6 +182,93 @@ public class UserService {
             user.setPin(encodedPin);
             userRepository.save(user);
 
+            resp.setCode(200);
+            resp.setMessage("PIN updated successfully");
+            resp.setStatus(ResponseStatus.SUCCESS);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
+    /**
+     * Member-initiated resubmission after an admin rejection. Flips REJECTED
+     * back to PENDING so the profile re-enters the admin verification queue,
+     * and stores an optional <=250-char note from the member to the admin.
+     * The endpoint the app has always called — POST /user/resubmit-profile —
+     * did not exist until 2026-09-04, so every resubmit failed with a 404.
+     */
+    public ResultResponse resubmitProfile(String encodedUserId, String note) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            Long userId = Long.parseLong(new String(Base64.getDecoder().decode(encodedUserId)));
+            UserEntity user = userRepository.findById(userId).orElse(null);
+            if (user == null) {
+                resp.setCode(404);
+                resp.setMessage("User not found");
+                resp.setStatus(ResponseStatus.FAILURE);
+                return resp;
+            }
+            if (user.getUserStatus() == ApprovalStatus.APPROVED) {
+                resp.setCode(400);
+                resp.setMessage("Your profile is already approved");
+                resp.setStatus(ResponseStatus.FAILURE);
+                return resp;
+            }
+            // Cap server-side — the app limits the input to 250 chars, but the
+            // column is 250 and a longer value must never fail the save.
+            if (note != null) {
+                note = note.trim();
+                if (note.length() > 250) note = note.substring(0, 250);
+                if (note.isEmpty()) note = null;
+            }
+            user.setResubmissionNote(note);
+            // PENDING resubmits are a no-op on status (double-tap / already in
+            // queue) but still record the member's note.
+            user.setUserStatus(ApprovalStatus.PENDING);
+            userRepository.save(user);
+
+            resp.setCode(200);
+            resp.setMessage("Profile resubmitted for review");
+            resp.setStatus(ResponseStatus.SUCCESS);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
+    /**
+     * Settings → Change PIN (2026-09-05): the signed-in member must prove the
+     * CURRENT pin before it changes. Kept separate from changePin so the
+     * forgot-PIN/reset flows (which have no old pin to give) are untouched.
+     */
+    public ResultResponse changePinWithOld(String mobileNumber, String oldPin, String newPin) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            UserEntity user = userRepository.findByMobile(mobileNumber);
+            if (user == null) {
+                resp.setCode(404);
+                resp.setMessage("User not found with this mobile number");
+                resp.setStatus(ResponseStatus.FAILURE);
+                return resp;
+            }
+            String stored = user.getPin();
+            String decodedStored = "";
+            try {
+                decodedStored = stored != null ? new String(Base64.getDecoder().decode(stored)) : "";
+            } catch (Exception ignore) { }
+            if (oldPin == null || !oldPin.equals(decodedStored)) {
+                resp.setCode(401);
+                resp.setMessage("Current PIN is incorrect");
+                resp.setStatus(ResponseStatus.FAILURE);
+                return resp;
+            }
+            user.setPin(Base64.getEncoder().encodeToString(newPin.getBytes()));
+            userRepository.save(user);
             resp.setCode(200);
             resp.setMessage("PIN updated successfully");
             resp.setStatus(ResponseStatus.SUCCESS);
@@ -282,6 +395,7 @@ public class UserService {
 
             Optional<UserEntity> user = userRepository.findById(id);
             if (user.isPresent()) {
+                resolveSubcasteName(user.get());
                 response.setCode(200);
                 response.setStatus(ResponseStatus.SUCCESS);
                 response.setMessage("User found.");
@@ -366,6 +480,8 @@ public class UserService {
                 user.setMobile("•••• •••• " + m.substring(Math.max(0, m.length() - 4)));
             }
 
+            resolveSubcasteName(user);
+
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);
             response.setMessage("User found.");
@@ -385,6 +501,24 @@ public class UserService {
             List<UserEntity> user = userRepository.findAllByCasteIdAndGenderAndIsActiveAndIsUserNot(casteId, gender,
                     ActiveStatus.Y, IsUser.ADM);
             if (user.size() > 0) {
+                // Boosted members first (client, 2026-09-27). This is the Explore "All Matches"
+                // grid — the list members browse most — and until now a paid boost only moved
+                // a profile up in Search and the Interest-Based shelf; here it did nothing and
+                // the card's Boosted ribbon never had a flag to show. Stable sort: everything
+                // else keeps the order it had.
+                try {
+                    java.util.Set<Long> boosted = new java.util.HashSet<>();
+                    for (com.uravugal.matrimony.models.ProfileBoost b : profileBoostRepository.findAllByStatusAndExpiresAtAfter("ACTIVE", java.time.LocalDateTime.now())) {
+                        boosted.add(b.getUserId());
+                    }
+                    for (UserEntity u : user) {
+                        u.setHasActiveBoost(boosted.contains(u.getUserId()));
+                    }
+                    user = new java.util.ArrayList<>(user);
+                    user.sort(java.util.Comparator.comparing((UserEntity u) -> Boolean.TRUE.equals(u.getHasActiveBoost()) ? 0 : 1));
+                } catch (Exception boostErr) {
+                    System.out.println("getUserDetailByCaste: boost ordering skipped — " + boostErr.getMessage());
+                }
                 response.setCode(200);
                 response.setStatus(ResponseStatus.SUCCESS);
                 response.setMessage("User Data Fetched Successfully.");
@@ -663,11 +797,33 @@ public class UserService {
                             advFeature.getId(), userSubscriptions.getSubscriptionPlanId()) != null;
                 }
             }
+
+            // 🔹 SUBCASTE_SEARCH is a separate, HIGHER gate than ADV_SEARCH (Silver+ vs Classic+),
+            // so it gets its own check rather than riding on hasAdvSearch. Which plans grant it is
+            // pure data — the planFeatures rows — so changing the tier needs no code change.
+            //
+            // Enforced server-side as well as in the app because /user/filterUsers can be called
+            // directly; a client-only gate would be trivially bypassed. Degrades SILENTLY (the
+            // subcaste filter is simply ignored) to match how ADV_SEARCH already behaves, rather
+            // than failing the whole search.
+            boolean hasSubcasteSearch = false;
+            if (userSubscriptions != null && userSubscriptions.getSubscriptionPlanId() != null && userSubscriptions.getSubscriptionPlanId() != 1L) {
+                Features subcasteFeature = featuresRepository.findByCode("SUBCASTE_SEARCH");
+                if (subcasteFeature != null) {
+                    hasSubcasteSearch = planFeaturesRepository.findByFeatureIdAndSubscriptionPlanId(
+                            subcasteFeature.getId(), userSubscriptions.getSubscriptionPlanId()) != null;
+                }
+            }
+            List<Long> effectiveSubcasteIds = hasSubcasteSearch ? filterRequest.getSubcasteIds() : null;
+            Integer subcasteFilterApplied =
+                    (effectiveSubcasteIds != null && !effectiveSubcasteIds.isEmpty()) ? 1 : 0;
             if (hasAdvSearch) {
 
                 users = userRepository.advanceFilter(
                         filterRequest.getGender(),
                         filterRequest.getCasteId(),
+                        effectiveSubcasteIds,
+                        subcasteFilterApplied,
                         minAge,
                         maxAge,
                         minIncome,
@@ -692,6 +848,8 @@ public class UserService {
                         "Y",
                         filterRequest.getGender(),
                         filterRequest.getCasteId(),
+                        effectiveSubcasteIds,
+                        subcasteFilterApplied,
                         minAge,
                         maxAge,
                         filterRequest.getLocation(),
@@ -877,6 +1035,7 @@ private Integer parseIntSafe(String val) {
     @Autowired
     private com.uravugal.matrimony.repositories.ContactRevealRepository contactRevealRepository;
 
+    @org.springframework.transaction.annotation.Transactional
     public ResultResponse createUser(UserProfileRequest request) {
         ResultResponse response = new ResultResponse();
         try {
@@ -898,13 +1057,48 @@ private Integer parseIntSafe(String val) {
                 return response;
             }
 
+            // Subcaste is REQUIRED — but only for castes that actually have one. Castes with a
+            // real list (Vanniyar, Naidu, ...) all carry an "Others" row, so a member who doesn't
+            // know theirs still has a valid choice and can never dead-end. A caste-level option
+            // like FREE CASTE BAR ("any caste is fine") has NO subcastes and must not be blocked —
+            // hence the count check rather than a blanket null check. Enforced here rather than
+            // with a NOT NULL column, so pre-existing rows without a subcaste stay valid.
+            boolean casteHasSubcastes = request.getCasteId() != null
+                    && subCasteRepository.countActiveByCasteId(request.getCasteId().longValue()) > 0;
+            if (casteHasSubcastes && request.getSubcasteId() == null) {
+                response.setCode(400);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("Subcaste is required. Choose 'Others' if you are not sure.");
+                return response;
+            }
+
+            // When supplied it must belong to the selected caste — otherwise the profile would
+            // carry a subcaste from a completely different caste.
+            if (request.getSubcasteId() != null) {
+                SubCasteEntity subCaste = subCasteRepository.findById(request.getSubcasteId()).orElse(null);
+                if (subCaste == null || subCaste.getCasteId() == null || request.getCasteId() == null
+                        || !subCaste.getCasteId().equals(request.getCasteId().longValue())) {
+                    response.setCode(400);
+                    response.setStatus(ResponseStatus.FAILURE);
+                    response.setMessage("Subcaste does not belong to the selected caste");
+                    return response;
+                }
+            }
+
             UserDetailEntity userDetail = new UserDetailEntity();
             UserEntity user = userRepository.findByMobile(request.getMobileNumber());
 
             if (user != null) {
                 response.setCode(401);
                 response.setStatus(ResponseStatus.FAILURE);
-                response.setMessage("User already exists");
+                response.setMessage("This mobile number is already registered. Please sign in instead.");
+                return response;
+            }
+            if (request.getEmail() != null && !request.getEmail().isBlank()
+                    && userRepository.findByEmail(request.getEmail().trim()) != null) {
+                response.setCode(409);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("This email is already registered. Please sign in instead.");
                 return response;
             }
 
@@ -915,6 +1109,7 @@ private Integer parseIntSafe(String val) {
             userEntity.setMobile(request.getMobileNumber());
             userEntity.setGender(Gender.valueOf(request.getGender()));
             userEntity.setCasteId(request.getCasteId());
+            userEntity.setSubcasteId(request.getSubcasteId());
             // Generate memberId
             String newMemberId = generateMemberId();
             userEntity.setMemberId(newMemberId);
@@ -1014,6 +1209,14 @@ private Integer parseIntSafe(String val) {
             return response;
 
         } catch (Exception e) {
+            // The method swallows exceptions (HTTP-200 pattern), so the transaction
+            // must be told to roll back explicitly — otherwise the user row saved
+            // above COMMITS and the member gets "failed" with a ghost account
+            // created in the background (the reported bug).
+            try {
+                org.springframework.transaction.interceptor.TransactionAspectSupport
+                        .currentTransactionStatus().setRollbackOnly();
+            } catch (Exception txIgnore) { }
             response.setCode(500);
             response.setMessage("Error updating user profile: " + e.getMessage());
             response.setStatus(ResponseStatus.FAILURE);
@@ -1149,24 +1352,39 @@ private Integer parseIntSafe(String val) {
         try {
             UserEntity userentity = null;
             if (user.getMobile() != null) {
-                userentity = userRepository.findByMobile(user.getMobile());
-                if (userentity == null) {
-                    // Fall through: try family login
-                    Map<String, Object> familyPayload = familyLoginService.tryLogin(user.getMobile(), user.getPin());
-                    if (familyPayload != null) {
-                        finalresult.setData(familyPayload);
-                        finalresult.setMessage("Family Login Success");
-                        finalresult.setStatus(ResponseStatus.SUCCESS);
-                        finalresult.setCode(200);
+                // Email-or-mobile login (2026-09-05): the `mobile` field carries either
+                // identifier — anything containing '@' is looked up by email, everything
+                // else stays on the mobile path. The family-login fall-through is
+                // mobile-only by design (family PINs are provisioned against a mobile).
+                String identifier = user.getMobile().trim();
+                if (identifier.contains("@")) {
+                    userentity = userRepository.findByEmail(identifier);
+                    if (userentity == null) {
+                        finalresult.setMessage("User Not Found");
+                        finalresult.setStatus(ResponseStatus.FAILURE);
+                        finalresult.setCode(404);
                         return finalresult;
                     }
-                    finalresult.setMessage("User Not Found");
-                    finalresult.setStatus(ResponseStatus.FAILURE);
-                    finalresult.setCode(404);
-                    return finalresult;
+                } else {
+                    userentity = userRepository.findByMobile(identifier);
+                    if (userentity == null) {
+                        // Fall through: try family login
+                        Map<String, Object> familyPayload = familyLoginService.tryLogin(identifier, user.getPin());
+                        if (familyPayload != null) {
+                            finalresult.setData(familyPayload);
+                            finalresult.setMessage("Family Login Success");
+                            finalresult.setStatus(ResponseStatus.SUCCESS);
+                            finalresult.setCode(200);
+                            return finalresult;
+                        }
+                        finalresult.setMessage("User Not Found");
+                        finalresult.setStatus(ResponseStatus.FAILURE);
+                        finalresult.setCode(404);
+                        return finalresult;
+                    }
                 }
             } else {
-                finalresult.setMessage("Mobile Number Required");
+                finalresult.setMessage("Email or Mobile Number Required");
                 finalresult.setStatus(ResponseStatus.FAILURE);
                 finalresult.setCode(404);
                 return finalresult;
@@ -1218,6 +1436,7 @@ private Integer parseIntSafe(String val) {
                 HashMap<String, Object> pendingData = new HashMap<>();
                 pendingData.put("userId", pendingBase64Id);
                 pendingData.put("firstName", userentity.getFirstName());
+                pendingData.put("lastName", userentity.getLastName());
                 pendingData.put("userStatus", userentity.getUserStatus().toString());
                 pendingData.put("rejectionReason", userentity.getRejectionReason());
                 finalresult.setData(pendingData);
@@ -1307,6 +1526,36 @@ private Integer parseIntSafe(String val) {
         return finalresult;
     }
 
+    /** astroInfo[0].birth_time, or null. Tolerates the array/object shapes both signup paths write. */
+    public String readBirthTime(UserDetailEntity detail) {
+        if (detail == null || detail.getAstronomicInfo() == null) return null;
+        try {
+            com.fasterxml.jackson.databind.JsonNode node =
+                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(detail.getAstronomicInfo());
+            if (node.isArray()) node = node.size() > 0 ? node.get(0) : null;
+            if (node == null) return null;
+            com.fasterxml.jackson.databind.JsonNode bt = node.get("birth_time");
+            if (bt == null || bt.isNull()) return null;
+            String v = bt.asText().trim();
+            return (v.isEmpty() || "null".equalsIgnoreCase(v)) ? null : v;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Blank astroInfo[0].birth_time on an entity that is about to be serialised to a viewer. */
+    private void stripBirthTime(UserDetailEntity detail) {
+        if (detail == null || detail.getAstronomicInfo() == null) return;
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.JsonNode node = om.readTree(detail.getAstronomicInfo());
+            com.fasterxml.jackson.databind.JsonNode target = node.isArray() ? (node.size() > 0 ? node.get(0) : null) : node;
+            if (target == null || !target.isObject()) return;
+            ((com.fasterxml.jackson.databind.node.ObjectNode) target).put("birth_time", "");
+            detail.setAstronomicInfo(om.writeValueAsString(node));
+        } catch (Exception ignored) { }
+    }
+
     public void updateLastSeen(Long userId, boolean isOnline) {
         Optional<UserEntity> optionalUser = userRepository.findById(userId);
         if (optionalUser.isPresent()) {
@@ -1318,19 +1567,66 @@ private Integer parseIntSafe(String val) {
     }
 
     /**
-     * HARD DELETE user account + all related rows. Apple App Store requires real deletion.
-     * Wipes every child table referencing the user, then deletes the users row itself.
-     * Each table DELETE is individually try/caught so a missing table or column
-     * doesn't block the rest of the cascade.
+     * HARD DELETE user account + all related rows. Apple App Store and Google Play both
+     * require real deletion. Wipes every child table referencing the user, then the users row.
+     *
+     * \u1F534 This was completely broken in production until 2026-08-18: ten of the column
+     * names below were wrong (interestReceive, chats.receiverId, conversations.userOne/userTwo,
+     * viewedProfile.viewerUserId/viewedUserId, userLikes.likedUserId, and the four snake_case
+     * ones), so every call ended in a 500 and deleted NOTHING.
+     *
+     * The old per-statement try/catch is what hid it. Catching a JDBC exception does NOT
+     * un-poison the surrounding transaction \u2014 Spring has already marked it rollback-only,
+     * so the commit throws "Transaction silently rolled back" and every successful delete in
+     * the batch is undone. A swallowed error inside a transaction is not resilience, it is a
+     * silent total failure. The cascade is now atomic on purpose: account deletion must be
+     * all-or-nothing, since a partial wipe leaves orphaned chats and interests pointing at a
+     * user row that no longer exists.
+     *
+     * Order matters: chats are removed before conversations, because the second chats sweep
+     * resolves conversation ids via a subquery against that table.
      */
     @org.springframework.transaction.annotation.Transactional
-    public ResultResponse deleteAccount(String encodedUserId) {
+    public ResultResponse deleteAccount(String encodedUserId, String reason) {
         ResultResponse resp = new ResultResponse();
         try {
             Long userId = Long.parseLong(new String(Base64.getDecoder().decode(encodedUserId)));
 
-            // Child tables — delete rows referencing this user.
-            // Each query isolated so one failure doesn't abort the rest.
+            // Snapshot the member BEFORE the wipe (their rows are about to go),
+            // but only persist it AFTER the wipe succeeds — a deleted_accounts
+            // row must mean the deletion actually happened.
+            com.uravugal.matrimony.models.DeletedAccount tombstone = null;
+            UserEntity doomed = userRepository.findById(userId).orElse(null);
+            if (doomed != null) {
+                tombstone = new com.uravugal.matrimony.models.DeletedAccount();
+                tombstone.setUserId(userId);
+                tombstone.setMemberId(doomed.getMemberId());
+                tombstone.setFirstName(doomed.getFirstName());
+                tombstone.setLastName(doomed.getLastName());
+                tombstone.setGender(doomed.getGender() != null ? doomed.getGender().name() : null);
+                tombstone.setMobile(doomed.getMobile());
+                tombstone.setEmail(doomed.getEmail());
+                tombstone.setCasteId(doomed.getCasteId());
+                if (reason != null) {
+                    reason = reason.trim();
+                    if (reason.length() > 500) reason = reason.substring(0, 500);
+                    if (reason.isEmpty()) reason = null;
+                }
+                tombstone.setReason(reason);
+                // Which plan they held at deletion — latest subscription row's title.
+                try {
+                    java.util.List<?> pt = entityManager.createNativeQuery(
+                            "SELECT sp.title FROM user_subscriptions us JOIN subscription_plans sp "
+                            + "ON sp.id = us.subscriptionPlanId WHERE us.userId = :id "
+                            + "ORDER BY us.createdAt DESC LIMIT 1")
+                            .setParameter("id", userId).getResultList();
+                    tombstone.setPlanTitle(!pt.isEmpty() && pt.get(0) != null ? pt.get(0).toString() : "Free");
+                } catch (Exception planEx) {
+                    tombstone.setPlanTitle("Free");
+                }
+            }
+
+            // Child tables — every column name here is verified against the live schema.
             String[] wipes = new String[] {
                 "DELETE FROM user_feature_usage WHERE userId = :id",
                 "DELETE FROM family_logins WHERE primaryUserId = :id",
@@ -1338,20 +1634,40 @@ private Integer parseIntSafe(String val) {
                 "DELETE FROM user_subscriptions WHERE userId = :id",
                 "DELETE FROM shortlisted_profiles WHERE shortlistedBy = :id OR shortlistedUserId = :id",
                 "DELETE FROM restricted_field_requests WHERE requestedBy = :id OR requestedTo = :id",
-                "DELETE FROM interestRequest WHERE interestSend = :id OR interestReceive = :id",
-                "DELETE FROM chats WHERE senderId = :id OR receiverId = :id",
-                "DELETE FROM conversations WHERE userOne = :id OR userTwo = :id",
+                "DELETE FROM interestRequest WHERE interestSend = :id OR interestReceived = :id",
+                // chats has no receiverId — a message is addressed by its conversation. Sweep the
+                // user's own messages first, then everything left in any conversation they were in
+                // (i.e. the other participant's side), before the conversations themselves go.
+                "DELETE FROM chats WHERE senderId = :id",
+                "DELETE FROM chats WHERE conversationId IN "
+                    + "(SELECT id FROM conversations WHERE user_one_id = :id OR user_two_id = :id)",
+                "DELETE FROM conversations WHERE user_one_id = :id OR user_two_id = :id",
                 "DELETE FROM notifications WHERE senderId = :id OR receiverId = :id",
                 "DELETE FROM UserDeviceInformation WHERE userId = :id",
-                "DELETE FROM viewedProfile WHERE viewerUserId = :id OR viewedUserId = :id",
+                "DELETE FROM viewedProfile WHERE viewedBy = :id OR userIdValue = :id",
                 "DELETE FROM hidden_fields WHERE userId = :id",
                 "DELETE FROM blockedUsers WHERE blockedByUserId = :id OR blockedUserId = :id",
-                "DELETE FROM userLikes WHERE likedBy = :id OR likedUserId = :id",
+                "DELETE FROM userLikes WHERE likedBy = :id OR likedTo = :id",
                 "DELETE FROM userReports WHERE reportedByUserId = :id OR reportedUserId = :id",
-                "DELETE FROM savedSearchFilters WHERE savedSearchId IN (SELECT id FROM savedSearches WHERE userId = :id)",
-                "DELETE FROM savedSearches WHERE userId = :id",
+                "DELETE FROM savedSearchFilters WHERE saved_search_id IN "
+                    + "(SELECT id FROM savedSearches WHERE user_id = :id)",
+                "DELETE FROM savedSearches WHERE user_id = :id",
                 "DELETE FROM user_connections WHERE followerId = :id OR followingId = :id",
-                "DELETE FROM PAYMENT_REQUESTS WHERE userId = :id",
+                "DELETE FROM PAYMENT_REQUESTS WHERE user_id = :id",
+                // Verification documents. These were MISSING until 2026-08-18 — a member could
+                // "permanently delete" their account and their Aadhaar/PAN/income/education
+                // document rows survived, which contradicts both the privacy policy and Google
+                // Play's requirement that associated data be deleted. ⚠️ These rows hold a
+                // document_url pointing at object storage; see deleteAccountStorageNote below.
+                "DELETE FROM id_verifications WHERE userId = :id",
+                "DELETE FROM income_verifications WHERE userId = :id",
+                "DELETE FROM education_verifications WHERE userId = :id",
+                "DELETE FROM profile_boosts WHERE userId = :id",
+                "DELETE FROM callback_requests WHERE userId = :id",
+                // Support conversations: messages first, then the tickets they hang off.
+                "DELETE FROM ticket_messages WHERE ticket_id IN "
+                    + "(SELECT id FROM support_tickets WHERE user_id = :id)",
+                "DELETE FROM support_tickets WHERE user_id = :id",
                 "DELETE FROM gallery WHERE userId = :id",
                 "DELETE FROM user_details WHERE userId = :id",
                 "DELETE FROM users WHERE userId = :id"
@@ -1359,15 +1675,22 @@ private Integer parseIntSafe(String val) {
 
             int totalDeleted = 0;
             for (String sql : wipes) {
+                // No per-statement catch: see the method javadoc. A failure here must abort the
+                // whole delete and surface, not be logged and stepped over.
+                int n = entityManager.createNativeQuery(sql)
+                        .setParameter("id", userId)
+                        .executeUpdate();
+                totalDeleted += n;
+                System.out.println("deleteAccount [" + n + "] " + sql);
+            }
+
+            // Wipe succeeded — record the tombstone. Never fail the deletion over
+            // it (the account IS gone); just log if the insert itself fails.
+            if (tombstone != null) {
                 try {
-                    int n = entityManager.createNativeQuery(sql)
-                            .setParameter("id", userId)
-                            .executeUpdate();
-                    totalDeleted += n;
-                    System.out.println("deleteAccount [" + n + "] " + sql);
-                } catch (Exception ex) {
-                    // Table or column not present / already empty — log and continue
-                    System.err.println("deleteAccount skipped: " + sql + " → " + ex.getMessage());
+                    deletedAccountRepository.save(tombstone);
+                } catch (Exception tombEx) {
+                    System.out.println("Warning: deleted_accounts insert failed for user " + userId + ": " + tombEx.getMessage());
                 }
             }
 
@@ -1427,6 +1750,20 @@ private Integer parseIntSafe(String val) {
             if (viewerId.equals(profileUserId)) {
                 response.setCode(400);
                 response.setMessage("Cannot reveal own contact");
+                response.setStatus(ResponseStatus.FAILURE);
+                return response;
+            }
+
+            // CONSENT GATE — a paid plan buys the ABILITY to see contact details, never the right
+            // to see a specific person's. The other member must have accepted an interest request
+            // first, exactly as already required for Voice Call, Star Match and horoscope.
+            // Checked BEFORE the quota logic so a blocked attempt never burns a reveal.
+            Optional<InterestRequest> contactInterest =
+                    interestRequestRepository.findBetweenUsers(viewerId, profileUserId);
+            if (contactInterest.isEmpty()
+                    || contactInterest.get().getAcceptStatus() != ApprovalStatus.APPROVED) {
+                response.setCode(403);
+                response.setMessage("INTEREST_NOT_APPROVED");
                 response.setStatus(ResponseStatus.FAILURE);
                 return response;
             }
@@ -1538,6 +1875,10 @@ private Integer parseIntSafe(String val) {
                 UserDetailEntity profileDetail = userDetailRepository.findByUserId(profileUserId);
                 String horoscope = profileDetail != null ? profileDetail.getHoroscope() : null;
                 contactData.put("horoscope", (horoscope != null && !horoscope.equals("null")) ? horoscope : null);
+                // Birth time rides with the horoscope: same astro data, same consent rule
+                // (plan has HOROSCOPE_VIEW and the interest is APPROVED). Masked otherwise —
+                // see the masking block in getProfileDetailWithIntractionStatus.
+                contactData.put("birthTime", readBirthTime(profileDetail));
             }
 
             response.setCode(200);
@@ -2050,9 +2391,14 @@ private Integer parseIntSafe(String val) {
                         userDetailRepository.findByUserId(profileUserId);
                 if (ud != null) {
                     ud.setHoroscope(null);
+                    // Birth time follows the horoscope's rule exactly — it is the same astro
+                    // data and is revealed by the same tap (see revealContact).
+                    stripBirthTime(ud);
                 }
             } catch (Exception ignored) {}
         }
+
+        resolveSubcasteName(profileUser);
 
         Map<String, Object> data = Map.of(
                 "profile", profileUser,
