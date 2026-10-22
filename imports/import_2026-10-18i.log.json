@@ -1,0 +1,33 @@
+{
+ "created": [
+  {
+   "userId": 999,
+   "name": "Harikrishnan M"
+  },
+  {
+   "userId": 1000,
+   "name": "Murugan P"
+  },
+  {
+   "userId": 1001,
+   "name": "Aravindhan A"
+  }
+ ],
+ "lagnam": [
+  {
+   "userId": 999,
+   "code": 200
+  },
+  {
+   "userId": 1001,
+   "code": 200
+  }
+ ],
+ "photos": [
+  {
+   "userId": 999,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_999/temp-8584453617961155488profile_179234"
+  }
+ ],
+ "errors": []
+}

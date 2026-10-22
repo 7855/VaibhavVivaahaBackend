@@ -170,6 +170,34 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
     UserEntity findByMobile(String mobile);
 
+    /** Website quick-register leads: users rows that never went through sign-up (userStatus NULL). */
+    @org.springframework.data.jpa.repository.Query("""
+            SELECT u FROM UserEntity u
+            WHERE u.userStatus IS NULL
+              AND (u.registrationStage IS NULL OR u.registrationStage <> 'INCOMPLETE')
+              AND (:status IS NULL OR u.leadStatus = :status)
+              AND (:search IS NULL OR u.firstName LIKE CONCAT('%', :search, '%') OR u.mobile LIKE CONCAT('%', :search, '%'))
+            ORDER BY u.createdAt DESC, u.userId DESC
+            """)
+    org.springframework.data.domain.Page<UserEntity> findWebsiteLeads(
+            @org.springframework.data.repository.query.Param("status") String status,
+            @org.springframework.data.repository.query.Param("search") String search,
+            org.springframework.data.domain.Pageable pageable);
+
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(u) FROM UserEntity u WHERE u.userStatus IS NULL AND (u.leadStatus IS NULL OR u.leadStatus = 'NEW')")
+    long countNewWebsiteLeads();
+
+    /** App registrations started but not finished (new flow, 2026-10-19). */
+    @org.springframework.data.jpa.repository.Query("""
+            SELECT u FROM UserEntity u
+            WHERE u.registrationStage = 'INCOMPLETE'
+              AND (:search IS NULL OR u.firstName LIKE CONCAT('%', :search, '%') OR u.mobile LIKE CONCAT('%', :search, '%'))
+            ORDER BY u.updatedAt DESC, u.userId DESC
+            """)
+    org.springframework.data.domain.Page<UserEntity> findIncompleteRegistrations(
+            @org.springframework.data.repository.query.Param("search") String search,
+            org.springframework.data.domain.Pageable pageable);
+
     @Query("SELECT u FROM UserEntity u WHERE u.email = :email AND u.mobile IS NOT NULL ORDER BY u.userId DESC")
     java.util.List<UserEntity> findRegisteredByEmail(@org.springframework.data.repository.query.Param("email") String email);
 
@@ -316,13 +344,20 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                 WHERE us1.id = (
                     SELECT us2.id FROM user_subscriptions us2
                     WHERE us2.userId = us1.userId
-                    ORDER BY us2.createdAt DESC LIMIT 1
+                      AND us2.status = 'ACTIVE'
+                      AND (us2.endDate IS NULL OR us2.endDate >= CURDATE())
+                    ORDER BY us2.createdAt DESC, us2.id DESC LIMIT 1
                 )
             ) latest_sub ON u.userId = latest_sub.userId
             LEFT JOIN subscription_plans sp ON latest_sub.subscriptionPlanId = sp.id
-            WHERE (:userType IS NULL OR u.isUser = :userType)
+            WHERE (:userType IS NULL
+                   OR (:userType = 'ADM' AND u.isUser = 'ADM')
+                   OR (:userType = 'PU' AND COALESCE(u.isUser, '') <> 'ADM'
+                       AND sp.title IS NOT NULL AND sp.title <> 'Free')
+                   OR (:userType = 'FA' AND COALESCE(u.isUser, '') <> 'ADM'
+                       AND (sp.title IS NULL OR sp.title = 'Free')))
               AND (:userStatus IS NULL OR u.userStatus = :userStatus)
-              AND (:plan IS NULL OR sp.title = :plan)
+              AND (:plan IS NULL OR COALESCE(sp.title, 'Free') = :plan)
               AND (:search IS NULL
                    OR u.firstName LIKE CONCAT('%', :search, '%')
                    OR u.lastName  LIKE CONCAT('%', :search, '%')
@@ -330,7 +365,7 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                    OR u.email     LIKE CONCAT('%', :search, '%')
                    OR u.mobile    LIKE CONCAT('%', :search, '%')
                    OR u.memberId  LIKE CONCAT('%', :search, '%'))
-            ORDER BY u.createdAt DESC
+            ORDER BY u.createdAt DESC, u.userId DESC
             """,
             // ⚠ The count must see the SAME joins and predicates as the page, or the pager's
             // total is for a different set than the rows — hence the latest-sub join is repeated.
@@ -339,12 +374,19 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
             LEFT JOIN (
                 SELECT us1.userId, us1.subscriptionPlanId FROM user_subscriptions us1
                 WHERE us1.id = (SELECT us2.id FROM user_subscriptions us2 WHERE us2.userId = us1.userId
-                                ORDER BY us2.createdAt DESC LIMIT 1)
+                                  AND us2.status = 'ACTIVE'
+                                  AND (us2.endDate IS NULL OR us2.endDate >= CURDATE())
+                                ORDER BY us2.createdAt DESC, us2.id DESC LIMIT 1)
             ) latest_sub ON u.userId = latest_sub.userId
             LEFT JOIN subscription_plans sp ON latest_sub.subscriptionPlanId = sp.id
-            WHERE (:userType IS NULL OR u.isUser = :userType)
+            WHERE (:userType IS NULL
+                   OR (:userType = 'ADM' AND u.isUser = 'ADM')
+                   OR (:userType = 'PU' AND COALESCE(u.isUser, '') <> 'ADM'
+                       AND sp.title IS NOT NULL AND sp.title <> 'Free')
+                   OR (:userType = 'FA' AND COALESCE(u.isUser, '') <> 'ADM'
+                       AND (sp.title IS NULL OR sp.title = 'Free')))
               AND (:userStatus IS NULL OR u.userStatus = :userStatus)
-              AND (:plan IS NULL OR sp.title = :plan)
+              AND (:plan IS NULL OR COALESCE(sp.title, 'Free') = :plan)
               AND (:search IS NULL
                    OR u.firstName LIKE CONCAT('%', :search, '%')
                    OR u.lastName  LIKE CONCAT('%', :search, '%')
@@ -353,6 +395,10 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                    OR u.mobile    LIKE CONCAT('%', :search, '%')
                    OR u.memberId  LIKE CONCAT('%', :search, '%'))
             """, nativeQuery = true)
+    // Premium/Free tabs are decided by the member's latest ACTIVE, unexpired subscription —
+    // the same rule the app gates on (UserSubscriptionsRepository.findTopByUserIdOrderByCreatedAtDesc).
+    // NOT by users.isUser: that flag is stale (PU members on Free, paying members still FA).
+    // Only ADM still reads isUser. Users share createdAt values, so userId breaks ties.
     Page<Object[]> findAllUsersForAdmin(@org.springframework.data.repository.query.Param("userType") String userType,
                                         @org.springframework.data.repository.query.Param("userStatus") String userStatus,
                                         @org.springframework.data.repository.query.Param("plan") String plan,

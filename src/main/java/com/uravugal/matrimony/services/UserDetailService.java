@@ -88,6 +88,9 @@ public class UserDetailService {
             if (request.getBirthTime() != null) {
                 astroInfo.put("birth_time", request.getBirthTime().trim());
             }
+            if (request.getLagnam() != null) {
+                astroInfo.put("lagnam", request.getLagnam().trim());
+            }
             
             // Convert back to JSON array
             JsonMap[] updatedArray = new JsonMap[]{astroInfo};
@@ -595,7 +598,7 @@ public ResultResponse calculateProfileCompletion(String userId) {
 // Define fields to check
 List<String> requiredFields = new ArrayList<>(Arrays.asList(
     "horoscope", "profileImage", "height", "weight", "star",
-    "moonSign", "dosham", "birthTime", "maritalStatus", "motherLanguage",
+    "moonSign", "dosham", "birthTime", "lagnam", "maritalStatus", "motherLanguage",
     "familyType", "familyStatus", "numberOfSiblings",
     "noOfBrothers", "noOfSisters", "brotherMarried", "sisterMarried",
     "hobbies",
@@ -722,6 +725,7 @@ int totalFields = requiredFields.size();
             checkField(firstAstro, "moon_sign", "moonSign", missingFields, completedFields::incrementAndGet);
             checkField(firstAstro, "dosham", "dosham", missingFields, completedFields::incrementAndGet);
             checkField(firstAstro, "birth_time", "birthTime", missingFields, completedFields::incrementAndGet);
+            checkField(firstAstro, "lagnam", "lagnam", missingFields, completedFields::incrementAndGet);
         }
 
         // Check family info fields

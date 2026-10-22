@@ -162,6 +162,29 @@ public class AdminController {
         return resp;
     }
 
+    /**
+     * Dashboard overview for an IST date range. Either {@code from}+{@code to}
+     * (YYYY-MM-DD) or {@code days} (N days ending today; 1 = today only).
+     */
+    @GetMapping("/stats/overview")
+    public ResultResponse getActivityOverview(
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(defaultValue = "7") int days) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
+            java.time.LocalDate t = (to != null && !to.isBlank()) ? java.time.LocalDate.parse(to) : today;
+            java.time.LocalDate f = (from != null && !from.isBlank()) ? java.time.LocalDate.parse(from) : t.minusDays(Math.max(1, days) - 1);
+            resp = adminService.getActivityOverview(f, t);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
     @GetMapping("/stats/registrations")
     public ResultResponse getRegistrationTrends() {
         ResultResponse resp = new ResultResponse();
@@ -247,6 +270,29 @@ public class AdminController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return adminService.getDeletedAccounts(page, size);
+    }
+
+    /** Website quick-register leads for the advisor: ?status=NEW|CONTACTED|CONVERTED|DROPPED|ALL &search= */
+    @GetMapping("/website-leads")
+    public PaginatedResultResponse websiteLeads(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String search) {
+        return adminService.getWebsiteLeads(page, size, status, search);
+    }
+
+    @GetMapping("/incomplete-registrations")
+    public PaginatedResultResponse getIncompleteRegistrations(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String search) {
+        return adminService.getIncompleteRegistrations(page, size, search);
+    }
+
+    @PutMapping("/website-leads/{userId}")
+    public ResultResponse updateWebsiteLead(@PathVariable Long userId, @RequestBody java.util.Map<String, String> body) {
+        return adminService.updateWebsiteLead(userId, body.get("status"), body.get("note"));
     }
 
     @PutMapping("/users/{userId}/approve")

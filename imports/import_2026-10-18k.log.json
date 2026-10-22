@@ -1,0 +1,29 @@
+{
+ "created": [
+  {
+   "userId": 1004,
+   "name": "Kokila A"
+  },
+  {
+   "userId": 1005,
+   "name": "Venkatesan P"
+  }
+ ],
+ "lagnam": [
+  {
+   "userId": 1004,
+   "code": 200
+  }
+ ],
+ "photos": [
+  {
+   "userId": 1004,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_1004/temp-409957275459965625profile_179234"
+  },
+  {
+   "userId": 1005,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_1005/temp-14955534246449886748profile_1792"
+  }
+ ],
+ "errors": []
+}

@@ -301,6 +301,20 @@ public class UserController {
         return resp;
     }
 
+    /** Login with a WhatsApp-verified number (purpose "start"). Body: {mobile, verificationToken}. */
+    @PostMapping("/login-with-otp")
+    public ResultResponse loginWithOtp(@RequestBody java.util.Map<String, String> body) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            resp = userService.loginWithOtp(body.get("mobile"), body.get("verificationToken"));
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
     @PostMapping("/login")
     public ResultResponse login(@RequestBody UserEntity loginRequest) {
         ResultResponse resp = new ResultResponse();
@@ -332,6 +346,51 @@ public class UserController {
         ResultResponse resp = new ResultResponse();
         try {
             resp = userConnectionService.followUser(followerId, followingId);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
+    /** Add a mobile to an account that has none — see UserService.addMobile. Body: {mobile, verificationToken}. */
+    @PostMapping("/addMobile/{encodedUserId}")
+    public ResultResponse addMobile(@PathVariable String encodedUserId,
+                                    @RequestBody java.util.Map<String, String> body) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            resp = userService.addMobile(encodedUserId, body.get("mobile"), body.get("verificationToken"));
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
+    /** Replace the account's email with a newly verified one — see UserService.changeEmail. Body: {email, verificationToken}. */
+    @PostMapping("/changeEmail/{encodedUserId}")
+    public ResultResponse changeEmail(@PathVariable String encodedUserId,
+            @RequestBody java.util.Map<String, String> body) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            resp = userService.changeEmail(encodedUserId, body.get("email"), body.get("verificationToken"));
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
+    /** Add an email to an account that has none — see UserService.addEmail. Body: {email, verificationToken}. */
+    @PostMapping("/addEmail/{encodedUserId}")
+    public ResultResponse addEmail(@PathVariable String encodedUserId,
+            @RequestBody java.util.Map<String, String> body) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            resp = userService.addEmail(encodedUserId, body.get("email"), body.get("verificationToken"));
         } catch (Exception e) {
             resp.setCode(500);
             resp.setMessage("Something Went Wrong. " + e.getMessage());

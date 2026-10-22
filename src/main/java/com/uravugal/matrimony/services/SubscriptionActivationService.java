@@ -34,6 +34,10 @@ public class SubscriptionActivationService {
     private UserSubscriptionsRepository userSubscriptionsRepository;
 
     @Autowired
+
+    private WhatsAppService whatsAppService;
+
+    @Autowired
     private NotificationRepository notificationRepository;
 
     @Autowired
@@ -142,6 +146,7 @@ public class SubscriptionActivationService {
                 System.out.println("Warning: activation email failed: " + e.getMessage());
             }
         }
+        try { whatsAppService.planActivated(user, plan.getTitle(), validityText(plan, subscription)); } catch (Exception ignored) { }
 
         return subscription;
     }

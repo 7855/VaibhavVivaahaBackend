@@ -1,0 +1,24 @@
+{
+ "created": [
+  {
+   "userId": 990,
+   "name": "Archana Natarajan"
+  },
+  {
+   "userId": 991,
+   "name": "Priyadarshini V"
+  }
+ ],
+ "lagnam": [],
+ "photos": [
+  {
+   "userId": 990,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_990/temp-3395587515489257727profile_179234"
+  },
+  {
+   "userId": 991,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_991/temp-14819029637258133212profile_17923"
+  }
+ ],
+ "errors": []
+}

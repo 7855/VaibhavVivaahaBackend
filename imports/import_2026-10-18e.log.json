@@ -1,0 +1,29 @@
+{
+ "created": [
+  {
+   "userId": 988,
+   "name": "Ezhilarasi N"
+  },
+  {
+   "userId": 989,
+   "name": "Seema S"
+  }
+ ],
+ "lagnam": [
+  {
+   "userId": 988,
+   "code": 200
+  },
+  {
+   "userId": 989,
+   "code": 200
+  }
+ ],
+ "photos": [
+  {
+   "userId": 989,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_989/temp-7508852393597904959profile_179234"
+  }
+ ],
+ "errors": []
+}

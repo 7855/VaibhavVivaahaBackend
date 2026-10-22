@@ -67,7 +67,8 @@ public class EmailService {
 
     /** @return true when ZeptoMail accepted the mail (after one automatic retry). */
     public boolean sendOtpEmail(String toEmail, String firstName, String otp, String purpose) {
-        String templateKey = "registration".equalsIgnoreCase(purpose) ? tplOtpRegistration : tplOtpReset;
+        String templateKey = ("registration".equalsIgnoreCase(purpose) || "add-email".equalsIgnoreCase(purpose) || "change-email".equalsIgnoreCase(purpose))
+                ? tplOtpRegistration : tplOtpReset;
         Map<String, Object> merge = new HashMap<>();
         merge.put("firstName", safeName(firstName));
         merge.put("otp", otp);

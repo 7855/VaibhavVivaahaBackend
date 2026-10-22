@@ -1,0 +1,47 @@
+{
+ "created": [
+  {
+   "userId": 994,
+   "name": "Murali M"
+  },
+  {
+   "userId": 996,
+   "name": "Gokul V"
+  },
+  {
+   "userId": 997,
+   "name": "Sugavaneswari P V"
+  }
+ ],
+ "lagnam": [
+  {
+   "userId": 994,
+   "code": 200
+  },
+  {
+   "userId": 996,
+   "code": 200
+  },
+  {
+   "userId": 997,
+   "code": 200
+  }
+ ],
+ "photos": [
+  {
+   "userId": 994,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_994/temp-15008583406569913658profile_17923"
+  }
+ ],
+ "errors": [
+  {
+   "create": "Deepan Chakravarthi",
+   "resp": {
+    "code": 500,
+    "status": "FAILURE",
+    "message": "Something Went Wrong. Transaction silently rolled back because it has been marked as rollback-only",
+    "data": null
+   }
+  }
+ ]
+}

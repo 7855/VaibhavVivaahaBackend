@@ -51,7 +51,6 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -133,10 +132,10 @@ public class CashfreeService {
     @Value("${cashfree.client.id:}") private String clientId;
     @Value("${cashfree.client.secret:}") private String clientSecret;
     @Value("${cashfree.api.version:2025-01-01}") private String apiVersion;
-    @Value("${cashfree.payment.methods:upi,dc,cc,nb,app}") private String paymentMethods;
+    @Value("${cashfree.payment.methods:upi,dc,cc,nb}") private String paymentMethods;
     @Value("${cashfree.return.url:}") private String returnUrl;
     @Value("${cashfree.notify.url:}") private String notifyUrl;
-    @Value("${cashfree.order.expiry.minutes:30}") private int orderExpiryMinutes;
+    @Value("${cashfree.order.expiry.minutes:15}") private int orderExpiryMinutes;
     @Value("${cashfree.webhook.max.skew.minutes:10}") private long webhookMaxSkewMinutes;
     @Value("${payments.boost.price:149}") private BigDecimal boostPrice;
 
@@ -147,6 +146,7 @@ public class CashfreeService {
     @Autowired private SubscriptionActivationService activationService;
     @Autowired private PaymentLogService paymentLog;
     @Autowired private InvoiceService invoiceService;
+    @Autowired private WhatsAppService whatsAppService;
 
     // Same timeout discipline as EmailService (2026-09-04): a slow gateway must never pin a
     // request thread + Hikari connection indefinitely.
@@ -197,43 +197,43 @@ public class CashfreeService {
             }
             amount = amount.setScale(2, RoundingMode.HALF_UP);
 
-            // Reuse an open, unexpired order for the same purchase — a double-tap or a "back
-            // and retry" must not mint a second session (and a second potential charge).
+// ── NO ORDER REUSE (client decision, 2026-09-28) ──────────────────────────────
+            // Every "Continue with this plan" creates a FRESH Cashfree order and a fresh
+            // payment_session_id. This deliberately replaces a 28-minute dedupe window that
+            // returned the EXISTING order (and its ORIGINAL session) for the same
+            // user+purpose+plan+amount+channel.
             //
-            // 🔴 Gated on the order's real AGE, never on expiresAt. This compared
-            // `expiresAt.isAfter(LocalDateTime.now())`, but expiresAt is written as IST
-            // wall-clock (OffsetDateTime.now(IST).toLocalDateTime()) while LocalDateTime.now()
-            // is the JVM's zone. On a UTC server that made a 30-minute order look valid for
-            // 5h30m + 30m = SIX HOURS, so a member retrying later was handed a long-dead
-            // session and got "This payment has expired" with no way forward.
+            // 🔴 Why that had to go. A payment_session_id is minted once, when the order is
+            // created — nothing about backing out of checkout and tapping again produces a new
+            // one. So if that single session could not open a payment page, every retry for the
+            // next 28 minutes was handed the same dead session and failed identically, then
+            // "suddenly worked" when the window lapsed and a fresh order was finally minted.
+            // Measured on production for user 936: five deliberate attempts produced exactly two
+            // rows, 28m10s apart — the first attempt, then the one that just missed the window;
+            // the three in between reused the first order and wrote NOTHING, not even a
+            // payment_log row (the order_created row is written below, past the old early
+            // return), so the trail understated what the member actually did.
             //
-            // createdAt is a java.util.Date — an instant — so this arithmetic is identical in
-            // every zone and cannot drift again. The 2-minute margin is kept: a session handed
-            // out seconds before expiry is useless.
-            long reuseWindowMs = Math.max(0L, orderExpiryMinutes - 2L) * 60_000L;
-            long nowMs = System.currentTimeMillis();
-            for (PaymentOrder existing : paymentOrderRepository
-                    .findByUserIdAndPurposeAndOrderStatusOrderByIdDesc(userId, purpose, PaymentOrder.STATUS_ACTIVE)) {
-                if (Objects.equals(existing.getPlanId(), planId)
-                        // Channel must match: an SDK order has no return_url, so reusing one for a
-                        // WEB request leaves the hosted page with nowhere to redirect back to (and
-                        // vice versa the SDK would get a redirect it cannot follow). Legacy rows
-                        // have a null channel and are only reused by the WEB default.
-                        && channel.equals(existing.getChannel() == null ? CHANNEL_WEB : existing.getChannel())
-                        && existing.getAmount() != null && existing.getAmount().compareTo(amount) == 0
-                        && existing.getCreatedAt() != null
-                        && (nowMs - existing.getCreatedAt().getTime()) < reuseWindowMs
-                        && notBlank(existing.getPaymentSessionId())) {
-                    r.setCode(200);
-                    r.setStatus(ResponseStatus.SUCCESS);
-                    r.setMessage("Existing order reused");
-                    r.setData(clientPayload(existing));
-                    return r;
-                }
-            }
+            // Double-submit protection now lives on the BUTTON, where the intent is actually
+            // known: PremiumTab/GatewayCheckoutView block re-entry while a checkout is starting
+            // and cover the screen, so the server cannot tell a double-tap from a deliberate
+            // retry and no longer tries to. The residual exposure is two ACTIVE orders if a
+            // duplicate ever slips through — harmless on its own, since an unpaid order simply
+            // expires; a double CHARGE would require completing payment twice.
+            //
+            // ⚠️ Do not reintroduce reuse here. If duplicate orders ever become a real problem,
+            // fix it at the tap, or dedupe on an idempotency key the CLIENT sends per tap —
+            // never by handing back a session whose health we have not checked.
 
-            String orderId = newOrderId(userId);
-            OffsetDateTime expiry = OffsetDateTime.now(IST).plusMinutes(orderExpiryMinutes).truncatedTo(ChronoUnit.SECONDS);
+                        String orderId = newOrderId(userId);
+            // Cashfree refuses an order_expiry_time less than 15 minutes from when IT receives
+            // the request. At exactly 15, network latency plus the seconds truncation below
+            // would land just under that floor and fail every order — so a window at or under
+            // the minimum gets a 30-second cushion (15 min → 15m30s at Cashfree). Values
+            // below 15 are raised to 15 for the same reason.
+            int expiryMinutes = Math.max(15, orderExpiryMinutes);
+            OffsetDateTime expiry = OffsetDateTime.now(IST).plusMinutes(expiryMinutes)
+                    .plusSeconds(expiryMinutes <= 15 ? 30 : 0).truncatedTo(ChronoUnit.SECONDS);
 
             ObjectNode body = mapper.createObjectNode();
             body.put("order_id", orderId);
@@ -630,10 +630,12 @@ public class CashfreeService {
         if (PaymentOrder.PURPOSE_BOOST.equals(order.getPurpose())) {
             boolean credited = activationService.addBoostCredit(user.getUserId());
             if (!credited) log.warn("Boost paid by user {} but no ACTIVE subscription to credit (order {})", user.getUserId(), orderId);
+            try { whatsAppService.paymentReceipt(user, order.getAmount(), "Profile Boost", orderId, istNow()); } catch (Exception ignored) { }
             return;
         }
         SubscriptionPlan plan = subscriptionPlanRepository.findById(order.getPlanId()).orElseThrow();
         UserSubscriptions sub = activationService.activatePlan(user, plan, ref, "PAYMENT_SUCCESS");
+        try { whatsAppService.paymentReceipt(user, order.getAmount(), plan.getTitle(), orderId, istNow()); } catch (Exception ignored) { }
         order = paymentOrderRepository.findByOrderId(orderId).orElseThrow(); // reload — see class Javadoc
         order.setSubscriptionId(sub.getId());
         paymentOrderRepository.save(order);

@@ -1,0 +1,25 @@
+{
+ "created": [
+  {
+   "userId": 1002,
+   "name": "Revathi V"
+  },
+  {
+   "userId": 1003,
+   "name": "Varsha J"
+  }
+ ],
+ "lagnam": [
+  {
+   "userId": 1002,
+   "code": 200
+  }
+ ],
+ "photos": [
+  {
+   "userId": 1003,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_1003/temp-1790668513814554074profile_17923"
+  }
+ ],
+ "errors": []
+}

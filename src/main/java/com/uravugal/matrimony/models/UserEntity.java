@@ -151,6 +151,37 @@ public class UserEntity extends GenericEntity{
     private String resubmissionNote;
 
     /**
+     * Website quick-register leads (users rows with userStatus NULL): the
+     * advisor's follow-up state — NEW | CONTACTED | CONVERTED | DROPPED —
+     * and whether the lead's mobile was verified on WhatsApp on the website.
+     * CONVERTED is set automatically when the lead registers in the app.
+     */
+    @Column(length = 20)
+    private String leadStatus;
+
+    @Column(length = 1)
+    private String leadVerified;
+
+    @Column(length = 500)
+    private String leadNote;
+
+    /**
+     * New app registration flow (2026-10-19): the row is created at WhatsApp verification with
+     * registrationStage = INCOMPLETE (userStatus stays NULL, so it is hidden like a website lead),
+     * every step is saved into registrationDraft (JSON), and the LAST step turns it into a real
+     * PENDING account (stage COMPLETE). registrationToken authorises step/complete calls and is
+     * re-minted on every WhatsApp verification. Rows from the old sign-up have all three NULL.
+     */
+    @Column(length = 20)
+    private String registrationStage;
+
+    @Column(length = 64)
+    private String registrationToken;
+
+    @Column(columnDefinition = "TEXT")
+    private String registrationDraft;
+
+    /**
      * F8 — flipped to true when admin approves an IncomeVerification submission.
      * Surfaces the 💼 Salary Verified badge on the user's profile.
      */

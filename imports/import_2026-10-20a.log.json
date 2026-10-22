@@ -1,0 +1,61 @@
+{
+ "created": [
+  {
+   "userId": 1014,
+   "name": "Jeyavani R"
+  },
+  {
+   "userId": 1015,
+   "name": "Madhumitha S"
+  },
+  {
+   "userId": 1016,
+   "name": "Vidhurasarani S"
+  },
+  {
+   "userId": 1017,
+   "name": "Rajkumar R"
+  },
+  {
+   "userId": 1018,
+   "name": "Nathiya R"
+  },
+  {
+   "userId": 1019,
+   "name": "Sathish Kumar E"
+  }
+ ],
+ "lagnam": [
+  {
+   "userId": 1014,
+   "code": 200
+  },
+  {
+   "userId": 1015,
+   "code": 200
+  },
+  {
+   "userId": 1016,
+   "code": 200
+  },
+  {
+   "userId": 1017,
+   "code": 200
+  },
+  {
+   "userId": 1018,
+   "code": 200
+  },
+  {
+   "userId": 1019,
+   "code": 200
+  }
+ ],
+ "photos": [
+  {
+   "userId": 1014,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_1014/temp-4155846016592126397profile_17925"
+  }
+ ],
+ "errors": []
+}

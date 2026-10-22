@@ -31,6 +31,12 @@ public class AuthService {
     private EmailService emailService;
 
     @Autowired
+    private WhatsAppService whatsAppService;
+
+    @Autowired
+    private com.uravugal.matrimony.repositories.MobileOtpRepository mobileOtpRepository;
+
+    @Autowired
     private JwtUtil jwtUtil;
 
     @Autowired
@@ -42,6 +48,19 @@ public class AuthService {
     private static final int TOKEN_EXPIRY_MINUTES = 30;
 
     // ========= SEND OTP =========
+
+    /**
+     * "add-email" (2026-10-12): a signed-in member whose account has NO email (the
+     * imported broker profiles) verifying one from the edit page. Same lead-table
+     * OTP + verificationToken path as registration; the token is then spent by
+     * UserService.addEmail, which is the only place that writes users.email.
+     */
+    private static boolean isLeadPurpose(String purpose) {
+        // "change-email" (2026-10-20): same path, for a member REPLACING their email from the
+        // edit page; the token is spent by UserService.changeEmail.
+        return "registration".equalsIgnoreCase(purpose) || "add-email".equalsIgnoreCase(purpose)
+                || "change-email".equalsIgnoreCase(purpose);
+    }
 
     @Transactional
     public ResultResponse sendOtp(String email, String purpose, String firstNameHint) {
@@ -56,7 +75,7 @@ public class AuthService {
 
             String otp = String.format("%04d", new Random().nextInt(10000));
 
-            if ("registration".equalsIgnoreCase(purpose)) {
+            if (isLeadPurpose(purpose)) {
                 // Blacklist check — previously banned identifiers cannot re-register
                 if (bannedIdentifierRepository.findByEmail(email) != null) {
                     response.setCode(403);
@@ -126,7 +145,7 @@ public class AuthService {
             } else {
                 response.setCode(400);
                 response.setStatus(ResponseStatus.FAILURE);
-                response.setMessage("Invalid purpose. Must be 'registration' or 'reset'.");
+                response.setMessage("Invalid purpose. Must be 'registration', 'add-email', 'change-email' or 'reset'.");
                 return response;
             }
 
@@ -156,7 +175,7 @@ public class AuthService {
         try {
             Map<String, Object> data = new HashMap<>();
 
-            if ("registration".equalsIgnoreCase(purpose)) {
+            if (isLeadPurpose(purpose)) {
                 UserLead lead = userLeadRepository.findByEmail(email);
                 if (lead == null) {
                     response.setCode(404);
@@ -224,7 +243,7 @@ public class AuthService {
             } else {
                 response.setCode(400);
                 response.setStatus(ResponseStatus.FAILURE);
-                response.setMessage("Invalid purpose. Must be 'registration' or 'reset'.");
+                response.setMessage("Invalid purpose. Must be 'registration', 'add-email', 'change-email' or 'reset'.");
                 return response;
             }
 
@@ -235,6 +254,202 @@ public class AuthService {
         } catch (Exception e) {
             response.setCode(500);
             response.setStatus(ResponseStatus.FAILURE);
+            response.setMessage("Error verifying OTP: " + e.getMessage());
+        }
+        return response;
+    }
+
+    // ========= MOBILE OTP (WhatsApp) =========
+
+    private static final int MOBILE_OTP_MAX_ATTEMPTS = 5;
+
+    private static boolean isMobilePurpose(String purpose) {
+        return "registration".equalsIgnoreCase(purpose) || "add-mobile".equalsIgnoreCase(purpose)
+                || "lead".equalsIgnoreCase(purpose) || "reset".equalsIgnoreCase(purpose)
+                || "start".equalsIgnoreCase(purpose);
+    }
+
+    /** A website quick-register row: name + mobile only, never went through sign-up. */
+    static boolean isStarter(UserEntity u) {
+        return u != null && u.getUserStatus() == null;
+    }
+
+    /**
+     * Sends a 6-digit code on WhatsApp (2026-10-14). Purposes: "registration" (the
+     * sign-up form, before a user row exists) and "add-mobile" (a signed-in member
+     * whose account has no mobile — the imported profiles). Both refuse a number
+     * that already belongs to an account, since mobile is the login identity.
+     */
+    @Transactional
+    public ResultResponse sendMobileOtp(String mobile, String purpose) {
+        ResultResponse response = new ResultResponse();
+        response.setStatus(ResponseStatus.FAILURE);
+        try {
+            if (mobile == null || !mobile.matches("^[6-9]\\d{9}$")) {
+                response.setCode(400);
+                response.setMessage("Please enter a valid 10-digit mobile number");
+                return response;
+            }
+            if (!isMobilePurpose(purpose)) {
+                response.setCode(400);
+                response.setMessage("Invalid purpose. Must be 'registration', 'add-mobile', 'lead' or 'reset'.");
+                return response;
+            }
+            if (bannedIdentifierRepository.findByMobile(mobile) != null) {
+                response.setCode(403);
+                response.setMessage("This mobile number cannot be used. Please contact support if you believe this is a mistake.");
+                return response;
+            }
+            UserEntity existing = userRepository.findByMobile(mobile);
+            boolean reset = "reset".equalsIgnoreCase(purpose);
+            if (reset) {
+                // Forgot PIN: the number must belong to a real account.
+                if (existing == null || isStarter(existing)) {
+                    response.setCode(404);
+                    response.setMessage("No account found with this mobile number");
+                    return response;
+                }
+            } else if (existing != null && RegistrationService.isIncomplete(existing) && !"start".equalsIgnoreCase(purpose)) {
+                // New flow (2026-10-19): the number already began a registration (and chose a
+                // PIN at the number page). Sign Up must not restart it — the member signs in with
+                // number + PIN and is taken back to the pending sections. A row started BEFORE
+                // the PIN moved to that page has no PIN and cannot be resumed either way; such a
+                // row must be cleared by support (the client chose the strict rule).
+                response.setCode(409);
+                response.setMessage("This number is already registered. Please sign in to complete your profile.");
+                return response;
+            } else if (existing != null && !isStarter(existing) && !"start".equalsIgnoreCase(purpose)) {
+                // A website lead (starter row) may go on to register; a real account may not.
+                // "start" (the phone-first entry screen, 2026-10-16) accepts any number: a
+                // registered one logs in with the code, a new one goes on to sign-up.
+                response.setCode(409);
+                response.setMessage("This mobile number is already registered. Please login instead.");
+                return response;
+            }
+
+            String otp = String.format("%06d", new java.security.SecureRandom().nextInt(1_000_000));
+            com.uravugal.matrimony.models.MobileOtp row = mobileOtpRepository.findByMobile(mobile);
+            if (row == null) {
+                row = new com.uravugal.matrimony.models.MobileOtp();
+                row.setMobile(mobile);
+            }
+            row.setOtp(otp);
+            row.setOtpCreatedAt(LocalDateTime.now());
+            row.setAttempts(0);
+            row.setVerified("N");
+            row.setVerificationToken(null);
+            row.setVerificationTokenExpiry(null);
+            mobileOtpRepository.save(row);
+
+            boolean sent = reset
+                    ? whatsAppService.sendForgotPinOtp(mobile, otp, "vvm-reset-" + row.getId())
+                    : whatsAppService.sendOtp(mobile, otp, "vvm-" + purpose + "-" + row.getId());
+            if (!sent) {
+                response.setCode(502);
+                response.setMessage("We couldn't send the WhatsApp code right now. Please try again in a moment.");
+                System.out.println("[WhatsApp] send failed for " + mobile + ": " + whatsAppService.getLastError());
+                return response;
+            }
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("mobile", mobile);
+            data.put("purpose", purpose);
+            data.put("channel", "whatsapp");
+            data.put("exists", existing != null && !isStarter(existing));
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage("OTP sent on WhatsApp");
+            response.setData(data);
+        } catch (Exception e) {
+            response.setCode(500);
+            response.setMessage("Error sending OTP: " + e.getMessage());
+        }
+        return response;
+    }
+
+    @Transactional
+    public ResultResponse verifyMobileOtp(String mobile, String otp, String purpose) {
+        ResultResponse response = new ResultResponse();
+        response.setStatus(ResponseStatus.FAILURE);
+        try {
+            if (!isMobilePurpose(purpose)) {
+                response.setCode(400);
+                response.setMessage("Invalid purpose. Must be 'registration' or 'add-mobile'.");
+                return response;
+            }
+            com.uravugal.matrimony.models.MobileOtp row = mobileOtpRepository.findByMobile(mobile);
+            if (row == null || row.getOtp() == null) {
+                response.setCode(404);
+                response.setMessage("No code was sent to this number. Please request a new one.");
+                return response;
+            }
+            if (row.getOtpCreatedAt() == null ||
+                    row.getOtpCreatedAt().plusMinutes(OTP_EXPIRY_MINUTES).isBefore(LocalDateTime.now())) {
+                response.setCode(400);
+                response.setMessage("OTP has expired. Please request a new one.");
+                return response;
+            }
+            if (row.getAttempts() >= MOBILE_OTP_MAX_ATTEMPTS) {
+                response.setCode(400);
+                response.setMessage("Too many wrong attempts. Please request a new code.");
+                return response;
+            }
+            if (!row.getOtp().equals(otp == null ? "" : otp.trim())) {
+                row.setAttempts(row.getAttempts() + 1);
+                mobileOtpRepository.save(row);
+                response.setCode(400);
+                response.setMessage("Invalid OTP");
+                return response;
+            }
+
+            String token = UUID.randomUUID().toString();
+            row.setOtp(null);
+            row.setOtpCreatedAt(null);
+            row.setAttempts(0);
+            row.setVerified("Y");
+            row.setVerificationToken(token);
+            row.setVerificationTokenExpiry(LocalDateTime.now().plusMinutes(TOKEN_EXPIRY_MINUTES));
+            mobileOtpRepository.save(row);
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("verified", true);
+            if ("reset".equalsIgnoreCase(purpose)) {
+                // Forgot PIN on WhatsApp: hand back the same resetToken the email path mints,
+                // so /auth/reset-password and SetNewPasswordScreen are unchanged.
+                UserEntity user = userRepository.findByMobile(mobile);
+                if (user == null || isStarter(user)) {
+                    response.setCode(404);
+                    response.setMessage("No account found with this mobile number");
+                    return response;
+                }
+                String resetToken = UUID.randomUUID().toString();
+                user.setResetToken(resetToken);
+                user.setResetTokenExpiry(LocalDateTime.now().plusMinutes(TOKEN_EXPIRY_MINUTES));
+                userRepository.save(user);
+                data.put("resetToken", resetToken);
+            } else {
+                data.put("verificationToken", token);
+                // A website lead registering in the app gets its name back for prefill.
+                UserEntity lead = userRepository.findByMobile(mobile);
+                data.put("exists", lead != null && !isStarter(lead));
+                // New registration flow (2026-10-19): an INCOMPLETE row resumes on any phone —
+                // a fresh registrationToken + the saved draft come back with the verification.
+                if (RegistrationService.isIncomplete(lead)) {
+                    data.put("registration", RegistrationService.resumePayload(lead, userRepository, true));
+                }
+                if (isStarter(lead)) {
+                    Map<String, Object> l = new HashMap<>();
+                    l.put("firstName", lead.getFirstName());
+                    l.put("profileFor", lead.getProfileCreated());
+                    data.put("lead", l);
+                }
+            }
+            response.setCode(200);
+            response.setStatus(ResponseStatus.SUCCESS);
+            response.setMessage("Mobile number verified");
+            response.setData(data);
+        } catch (Exception e) {
+            response.setCode(500);
             response.setMessage("Error verifying OTP: " + e.getMessage());
         }
         return response;

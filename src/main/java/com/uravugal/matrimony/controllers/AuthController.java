@@ -45,6 +45,40 @@ public class AuthController {
         return resp;
     }
 
+    /** WhatsApp OTP for a mobile number (registration / add-mobile). Paid per message: 3 per number per 10 minutes. */
+    @PostMapping("/send-mobile-otp")
+    public ResultResponse sendMobileOtp(@Valid @RequestBody com.uravugal.matrimony.dtos.MobileOtpRequest request) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            String key = "auth-mobile-otp:" + request.getMobile();
+            if (!rateLimiter.isAllowed(key, 3, 10 * 60 * 1000)) {
+                resp.setCode(429);
+                resp.setMessage("Too many codes requested for this number. Please try again after 10 minutes.");
+                resp.setStatus(ResponseStatus.FAILURE);
+                return resp;
+            }
+            resp = authService.sendMobileOtp(request.getMobile(), request.getPurpose());
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
+    @PostMapping("/verify-mobile-otp")
+    public ResultResponse verifyMobileOtp(@Valid @RequestBody com.uravugal.matrimony.dtos.MobileVerifyOtpRequest request) {
+        ResultResponse resp = new ResultResponse();
+        try {
+            resp = authService.verifyMobileOtp(request.getMobile(), request.getOtp(), request.getPurpose());
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something Went Wrong. " + e.getMessage());
+            resp.setStatus(ResponseStatus.FAILURE);
+        }
+        return resp;
+    }
+
     @PostMapping("/verify-otp")
     public ResultResponse verifyOtp(@Valid @RequestBody AuthVerifyOtpRequest request) {
         ResultResponse resp = new ResultResponse();

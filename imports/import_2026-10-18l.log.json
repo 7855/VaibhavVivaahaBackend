@@ -1,0 +1,49 @@
+{
+ "created": [
+  {
+   "userId": 1006,
+   "name": "Vijay Anand G"
+  },
+  {
+   "userId": 1007,
+   "name": "Satheeshkumar B"
+  },
+  {
+   "userId": 1008,
+   "name": "Satheeshkumar R L"
+  },
+  {
+   "userId": 1009,
+   "name": "Ilansooriyan M"
+  }
+ ],
+ "lagnam": [
+  {
+   "userId": 1006,
+   "code": 200
+  },
+  {
+   "userId": 1007,
+   "code": 200
+  },
+  {
+   "userId": 1008,
+   "code": 200
+  },
+  {
+   "userId": 1009,
+   "code": 200
+  }
+ ],
+ "photos": [
+  {
+   "userId": 1007,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_1007/temp-4577312837337759719profile_17923"
+  },
+  {
+   "userId": 1008,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_1008/temp-17003966314609185567profile_1792"
+  }
+ ],
+ "errors": []
+}

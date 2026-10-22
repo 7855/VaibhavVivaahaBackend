@@ -59,4 +59,10 @@ public class UserProfileRequest {
 
     // Email verification token from /auth/verify-otp with purpose=registration
     private String verificationToken;
+
+    /** From /auth/verify-mobile-otp (WhatsApp). Required once auth.require-mobile-verification=true. */
+    private String mobileVerificationToken;
+
+    /** Who the profile is for: Myself | Son | Daughter | Brother | Sister | Relative/Friend (optional). */
+    private String profileFor;
 }

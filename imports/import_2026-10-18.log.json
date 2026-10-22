@@ -1,0 +1,74 @@
+{
+ "created": [
+  {
+   "userId": 976,
+   "name": "Arumugam"
+  },
+  {
+   "userId": 977,
+   "name": "Sriram S"
+  },
+  {
+   "userId": 978,
+   "name": "Sathish Velan R"
+  },
+  {
+   "userId": 979,
+   "name": "Gnanadevan R"
+  },
+  {
+   "userId": 980,
+   "name": "Priyadharshini"
+  },
+  {
+   "userId": 981,
+   "name": "Yelumalai A"
+  },
+  {
+   "userId": 982,
+   "name": "Prakash"
+  },
+  {
+   "userId": 983,
+   "name": "Maharajan K"
+  }
+ ],
+ "updated": [
+  946,
+  947,
+  950
+ ],
+ "lagnam": [
+  {
+   "userId": 976,
+   "code": 200
+  },
+  {
+   "userId": 977,
+   "code": 200
+  },
+  {
+   "userId": 979,
+   "code": 200
+  },
+  {
+   "userId": 981,
+   "code": 200
+  },
+  {
+   "userId": 946,
+   "code": 200
+  }
+ ],
+ "photos": [
+  {
+   "userId": 946,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_946/temp-15560656538633863369profile_17923"
+  },
+  {
+   "userId": 947,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_947/temp-1382987687362233691profile_179233"
+  }
+ ],
+ "errors": []
+}

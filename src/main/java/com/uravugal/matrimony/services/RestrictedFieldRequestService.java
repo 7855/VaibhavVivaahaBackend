@@ -52,6 +52,10 @@ public class RestrictedFieldRequestService {
     private RestrictedFieldRequestRepository restrictedFieldRequestRepository;
 
     @Autowired
+
+    private WhatsAppService whatsAppService;
+
+    @Autowired
     private UserRepository userRepository;
 
     @Autowired
@@ -223,6 +227,15 @@ public class RestrictedFieldRequestService {
             notificationRepository.save(notification);
 
             pushNotificationService.sendPushNotificationToUser(requestedTo, "🔑 Permission Request", "A member wants to view your " + fieldLabel(fieldType) + ". Approve or decline the request.");
+
+            // WhatsApp to the owner — requester's name only when the owner's plan may see names.
+            try {
+                UserEntity owner = userRepository.findById(requestedTo).orElse(null);
+                UserEntity requester = userRepository.findById(requestedBy).orElse(null);
+                String requesterName = pushNotificationService.nameForRecipient(requestedTo,
+                        requester != null ? (requester.getFirstName() + " " + (requester.getLastName() == null ? "" : requester.getLastName())).trim() : null);
+                if (owner != null) whatsAppService.permissionRequest(owner, requesterName, fieldLabel(fieldType));
+            } catch (Exception ignored) { }
 
 
             response.setCode(201);
@@ -404,6 +417,10 @@ public class RestrictedFieldRequestService {
                     approved ? "Permission Approved" : "Permission Declined",
                     decidedByName + (approved ? " approved" : " declined")
                             + " your request to view their " + fieldLabel(request.getFieldType()) + ".");
+            try {
+                UserEntity requester = userRepository.findById(request.getRequestedBy()).orElse(null);
+                if (requester != null) whatsAppService.permissionDecision(requester, decidedBy, decidedByName, approved, fieldLabel(request.getFieldType()));
+            } catch (Exception ignored) { }
         }
     }
 

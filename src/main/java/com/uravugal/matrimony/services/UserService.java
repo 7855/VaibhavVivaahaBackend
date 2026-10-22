@@ -60,6 +60,13 @@ public class UserService {
     private UserRepository userRepository;
 
     @Autowired
+
+    private WhatsAppService whatsAppService;
+
+    @Autowired
+    private com.uravugal.matrimony.repositories.UserLeadRepository userLeadRepository;
+
+    @Autowired
     private com.uravugal.matrimony.repositories.DeletedAccountRepository deletedAccountRepository;
 
     @Autowired
@@ -200,6 +207,186 @@ public class UserService {
      * The endpoint the app has always called — POST /user/resubmit-profile —
      * did not exist until 2026-09-04, so every resubmit failed with a 404.
      */
+    /**
+     * Add an email to an account that has NONE (imported members, 2026-10-12). The address must
+     * have been verified through /auth/send-otp + /auth/verify-otp with purpose "add-email", which
+     * leaves a verificationToken on the user_leads row; that token is spent here. Deliberately
+     * refuses to CHANGE an existing email — that is the login identity and stays a support action.
+     */
+    @org.springframework.beans.factory.annotation.Value("${auth.require-mobile-verification:false}")
+    private boolean requireMobileVerification;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.uravugal.matrimony.repositories.MobileOtpRepository mobileOtpRepository;
+
+    /** null when the mobile is verified (or verification is not required); else the refusal. */
+    private String checkMobileVerification(String mobile, String token) {
+        if (token == null || token.isBlank()) {
+            return requireMobileVerification ? "MOBILE_NOT_VERIFIED" : null;
+        }
+        com.uravugal.matrimony.models.MobileOtp row = mobile == null ? null : mobileOtpRepository.findByMobile(mobile);
+        boolean ok = row != null && "Y".equals(row.getVerified())
+                && token.equals(row.getVerificationToken())
+                && row.getVerificationTokenExpiry() != null
+                && row.getVerificationTokenExpiry().isAfter(LocalDateTime.now());
+        return ok ? null : "MOBILE_NOT_VERIFIED";
+    }
+
+    /** Spends a mobile verification token after the account that used it exists. */
+    private void consumeMobileVerification(String mobile) {
+        try {
+            com.uravugal.matrimony.models.MobileOtp row = mobile == null ? null : mobileOtpRepository.findByMobile(mobile);
+            if (row != null) {
+                row.setVerificationToken(null);
+                row.setVerificationTokenExpiry(null);
+                mobileOtpRepository.save(row);
+            }
+        } catch (Exception ignored) { /* never fail a created account over bookkeeping */ }
+    }
+
+    /**
+     * Add a mobile to an account that has NONE (imported members without a phone, 2026-10-14).
+     * The number must have been verified on WhatsApp through /auth/send-mobile-otp +
+     * /auth/verify-mobile-otp with purpose "add-mobile"; that token is spent here. Refuses to
+     * CHANGE an existing mobile — it is the login identity and stays a support action.
+     */
+    public ResultResponse addMobile(String encodedUserId, String mobile, String verificationToken) {
+        ResultResponse resp = new ResultResponse();
+        resp.setStatus(ResponseStatus.FAILURE);
+        try {
+            Long userId = Long.parseLong(new String(Base64.getDecoder().decode(encodedUserId)));
+            UserEntity user = userRepository.findById(userId).orElse(null);
+            if (user == null) {
+                resp.setCode(404);
+                resp.setMessage("User not found");
+                return resp;
+            }
+            if (user.getMobile() != null && !user.getMobile().isBlank()) {
+                resp.setCode(400);
+                resp.setMessage("MOBILE_ALREADY_SET");
+                return resp;
+            }
+            String num = mobile == null ? "" : mobile.trim();
+            if (!num.matches("^[6-9]\\d{9}$")) {
+                resp.setCode(400);
+                resp.setMessage("Please enter a valid 10-digit mobile number");
+                return resp;
+            }
+            if (checkMobileVerificationStrict(num, verificationToken) != null) {
+                resp.setCode(403);
+                resp.setMessage("MOBILE_NOT_VERIFIED");
+                return resp;
+            }
+            if (userRepository.findByMobile(num) != null) {
+                resp.setCode(409);
+                resp.setMessage("This mobile number is already registered to another account");
+                return resp;
+            }
+            user.setMobile(num);
+            userRepository.save(user);
+            consumeMobileVerification(num);
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("mobile", num);
+            resp.setCode(200);
+            resp.setStatus(ResponseStatus.SUCCESS);
+            resp.setMessage("Mobile number added");
+            resp.setData(data);
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Error adding mobile: " + e.getMessage());
+        }
+        return resp;
+    }
+
+    /** Like checkMobileVerification but the token is never optional. */
+    private String checkMobileVerificationStrict(String mobile, String token) {
+        if (token == null || token.isBlank()) return "MOBILE_NOT_VERIFIED";
+        return checkMobileVerification(mobile, token);
+    }
+
+    public ResultResponse addEmail(String encodedUserId, String email, String verificationToken) {
+        return saveVerifiedEmail(encodedUserId, email, verificationToken, false);
+    }
+
+    /**
+     * Replace the member's email (2026-10-20, edit page "Change"). Same proof as addEmail — the
+     * NEW address must have been verified through send-otp/verify-otp with purpose
+     * "change-email" — but an existing email is allowed and overwritten.
+     */
+    public ResultResponse changeEmail(String encodedUserId, String email, String verificationToken) {
+        return saveVerifiedEmail(encodedUserId, email, verificationToken, true);
+    }
+
+    private ResultResponse saveVerifiedEmail(String encodedUserId, String email, String verificationToken, boolean replace) {
+        ResultResponse resp = new ResultResponse();
+        resp.setStatus(ResponseStatus.FAILURE);
+        try {
+            Long userId = Long.parseLong(new String(Base64.getDecoder().decode(encodedUserId)));
+            UserEntity user = userRepository.findById(userId).orElse(null);
+            if (user == null) {
+                resp.setCode(404);
+                resp.setMessage("User not found");
+                return resp;
+            }
+            if (!replace && user.getEmail() != null && !user.getEmail().isBlank()) {
+                resp.setCode(400);
+                resp.setMessage("EMAIL_ALREADY_SET");
+                return resp;
+            }
+            String addr = email == null ? "" : email.trim().toLowerCase();
+            if (addr.isBlank() || !addr.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+                resp.setCode(400);
+                resp.setMessage("Please enter a valid email address");
+                return resp;
+            }
+            // The OTP row was keyed on the address as TYPED; the account stores it lowercased.
+            com.uravugal.matrimony.models.UserLead lead = userLeadRepository.findByEmail(email.trim());
+            if (lead == null) lead = userLeadRepository.findByEmail(addr);
+            boolean verified = lead != null
+                    && "Y".equals(lead.getEmailVerified())
+                    && verificationToken != null
+                    && verificationToken.equals(lead.getVerificationToken())
+                    && lead.getVerificationTokenExpiry() != null
+                    && lead.getVerificationTokenExpiry().isAfter(LocalDateTime.now());
+            if (!verified) {
+                resp.setCode(403);
+                resp.setMessage("EMAIL_NOT_VERIFIED");
+                return resp;
+            }
+            if (replace && addr.equalsIgnoreCase(user.getEmail() == null ? "" : user.getEmail().trim())) {
+                resp.setCode(400);
+                resp.setMessage("SAME_EMAIL");
+                return resp;
+            }
+            // Re-check uniqueness at write time: another account could have taken it since the OTP.
+            if (userRepository.findByEmail(addr) != null) {
+                resp.setCode(409);
+                resp.setMessage("This email is already registered to another account");
+                return resp;
+            }
+            user.setEmail(addr);
+            userRepository.save(user);
+            lead.setVerificationToken(null);
+            lead.setVerificationTokenExpiry(null);
+            userLeadRepository.save(lead);
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("email", addr);
+            resp.setCode(200);
+            resp.setStatus(ResponseStatus.SUCCESS);
+            resp.setMessage(replace ? "Email changed" : "Email added");
+            resp.setData(data);
+        } catch (IllegalArgumentException e) {
+            resp.setCode(400);
+            resp.setMessage("Invalid user id");
+        } catch (Exception e) {
+            resp.setCode(500);
+            resp.setMessage("Something went wrong: " + e.getMessage());
+        }
+        return resp;
+    }
+
     public ResultResponse resubmitProfile(String encodedUserId, String note) {
         ResultResponse resp = new ResultResponse();
         try {
@@ -1041,6 +1228,17 @@ private Integer parseIntSafe(String val) {
         try {
             System.out.println("User request: " + request);
 
+            // WhatsApp OTP on the mobile (2026-10-14). The new app always sends the
+            // token; older builds send none, which is allowed until
+            // auth.require-mobile-verification is flipped on.
+            String mobileTokenErr = checkMobileVerification(request.getMobileNumber(), request.getMobileVerificationToken());
+            if (mobileTokenErr != null) {
+                response.setCode(403);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage(mobileTokenErr);
+                return response;
+            }
+
             // Ban blacklist check — mobile or email previously banned
             if (request.getMobileNumber() != null
                     && bannedIdentifierRepository.findByMobile(request.getMobileNumber()) != null) {
@@ -1088,7 +1286,11 @@ private Integer parseIntSafe(String val) {
             UserDetailEntity userDetail = new UserDetailEntity();
             UserEntity user = userRepository.findByMobile(request.getMobileNumber());
 
-            if (user != null) {
+            // A website quick-register lead (userStatus NULL) is CLAIMED by the sign-up —
+            // same row, so the advisor's lead list shows it as converted and no second
+            // users row exists for the number (findByMobile must return one row).
+            boolean claimingLead = user != null && user.getUserStatus() == null;
+            if (user != null && !claimingLead) {
                 response.setCode(401);
                 response.setStatus(ResponseStatus.FAILURE);
                 response.setMessage("This mobile number is already registered. Please sign in instead.");
@@ -1102,8 +1304,10 @@ private Integer parseIntSafe(String val) {
                 return response;
             }
 
-            // Save user entity
-            UserEntity userEntity = new UserEntity();
+            // Save user entity (reusing the lead row when there is one)
+            UserEntity userEntity = claimingLead ? user : new UserEntity();
+            if (claimingLead) userEntity.setLeadStatus("CONVERTED");
+            if (request.getProfileFor() != null && !request.getProfileFor().isBlank()) userEntity.setProfileCreated(request.getProfileFor().trim());
             userEntity.setFirstName(request.getFirstName());
             userEntity.setLastName(request.getLastName());
             userEntity.setMobile(request.getMobileNumber());
@@ -1202,6 +1406,8 @@ private Integer parseIntSafe(String val) {
             Map<String, Object> resultData = new HashMap<>();
             resultData.put("userId", base64UserId);
 
+            consumeMobileVerification(request.getMobileNumber());
+            try { whatsAppService.welcome(userEntity); } catch (Exception ignored) { }
             response.setCode(200);
             response.setMessage("User profile created successfully");
             response.setData(resultData);
@@ -1346,12 +1552,50 @@ private Integer parseIntSafe(String val) {
     }
 
     public ResultResponse login(UserEntity user) {
+        return login(user, false);
+    }
+
+    /**
+     * Login with a WhatsApp code instead of the PIN (2026-10-16): the phone-first entry
+     * screen verifies the number with purpose "start" and hands the token here. Same
+     * payload and the same status / ban / family rules as the PIN login — only the PIN
+     * comparison is skipped. The token is single-use.
+     */
+    public ResultResponse loginWithOtp(String mobile, String verificationToken) {
+        ResultResponse resp = new ResultResponse();
+        resp.setStatus(ResponseStatus.FAILURE);
+        String num = mobile == null ? "" : mobile.trim();
+        if (checkMobileVerificationStrict(num, verificationToken) != null) {
+            resp.setCode(403);
+            resp.setMessage("MOBILE_NOT_VERIFIED");
+            return resp;
+        }
+        UserEntity probe = new UserEntity();
+        probe.setMobile(num);
+        ResultResponse out = login(probe, true);
+        if (out.getCode() == 200) consumeMobileVerification(num);
+        return out;
+    }
+
+    private ResultResponse login(UserEntity user, boolean otpVerified) {
         ResultResponse finalresult = new ResultResponse();
         HashMap<String, Object> returnValue = new HashMap<>();
 
         try {
             UserEntity userentity = null;
             if (user.getMobile() != null) {
+                // Brute-force guard (2026-10-19): a 4-digit PIN has 10,000 values and there was
+                // no limit. 5 wrong PINs lock PIN login for that identifier for 15 minutes; the
+                // WhatsApp-code login is not counted (it has its own 3-per-10-min send limit).
+                if (!otpVerified) {
+                    long lockedFor = loginLockRemainingMinutes(user.getMobile());
+                    if (lockedFor > 0) {
+                        finalresult.setMessage("Too many wrong attempts. Please try again in " + lockedFor + " minute" + (lockedFor == 1 ? "" : "s") + ".");
+                        finalresult.setStatus(ResponseStatus.FAILURE);
+                        finalresult.setCode(429);
+                        return finalresult;
+                    }
+                }
                 // Email-or-mobile login (2026-09-05): the `mobile` field carries either
                 // identifier — anything containing '@' is looked up by email, everything
                 // else stays on the mobile path. The family-login fall-through is
@@ -1367,9 +1611,35 @@ private Integer parseIntSafe(String val) {
                     }
                 } else {
                     userentity = userRepository.findByMobile(identifier);
+                    // New registration flow (2026-10-19): a half-finished registration is not an
+                    // account yet. PIN login gets the code only (the PIN was never set, so the
+                    // draft must not be handed to whoever typed the number); the WhatsApp-verified
+                    // login gets the resume payload with a fresh registration token.
+                    if (RegistrationService.isIncomplete(userentity)) {
+                        // The PIN is chosen on the number page now (2026-10-19 later), so a
+                        // number + PIN login can resume on any phone: the draft + a fresh
+                        // registration token come back ONLY when the PIN matches. A wrong PIN
+                        // gets the same "Login Failed" as any other account — nothing about the
+                        // registration is revealed to someone who only knows the number.
+                        boolean ok = otpVerified || pinMatchesStored(user.getPin(), userentity.getPin());
+                        if (!ok) {
+                            recordLoginFailure(user.getMobile());
+                            finalresult.setMessage("Login Failed");
+                            finalresult.setStatus(ResponseStatus.FAILURE);
+                            finalresult.setCode(401);
+                            return finalresult;
+                        }
+                        clearLoginFailures(user.getMobile());
+                        finalresult.setMessage("REGISTRATION_INCOMPLETE");
+                        finalresult.setStatus(ResponseStatus.FAILURE);
+                        finalresult.setCode(403);
+                        finalresult.setData(RegistrationService.resumePayload(userentity, userRepository, true));
+                        return finalresult;
+                    }
+                    if (userentity != null && userentity.getUserStatus() == null) userentity = null; // website lead, no account yet
                     if (userentity == null) {
                         // Fall through: try family login
-                        Map<String, Object> familyPayload = familyLoginService.tryLogin(identifier, user.getPin());
+                        Map<String, Object> familyPayload = otpVerified ? null : familyLoginService.tryLogin(identifier, user.getPin());
                         if (familyPayload != null) {
                             finalresult.setData(familyPayload);
                             finalresult.setMessage("Family Login Success");
@@ -1390,10 +1660,26 @@ private Integer parseIntSafe(String val) {
                 return finalresult;
             }
 
-            if (user.getPin() != null && (userentity.getPin() == null || userentity.getPin().equals(""))) {
-                finalresult.setMessage("Pin Not Setted.");
+            // PIN check FIRST (2026-10-19): it used to run after the ban / suspension / approval
+            // gates, so any caller who knew a number got that member's name, status and the
+            // admin's rejection reason back with a WRONG PIN. Now a wrong PIN answers 401 for
+            // every account state; the status replies below are only reachable with the right PIN.
+            boolean pinMatches = otpVerified || pinMatchesStored(user.getPin(), userentity.getPin());
+            if (!pinMatches) {
+                // PIN mismatch on primary user — last chance: try family login
+                Map<String, Object> familyPayload = familyLoginService.tryLogin(user.getMobile(), user.getPin());
+                if (familyPayload != null) {
+                    clearLoginFailures(user.getMobile());
+                    finalresult.setData(familyPayload);
+                    finalresult.setMessage("Family Login Success");
+                    finalresult.setStatus(ResponseStatus.SUCCESS);
+                    finalresult.setCode(200);
+                    return finalresult;
+                }
+                recordLoginFailure(user.getMobile());
+                finalresult.setMessage("Login Failed");
                 finalresult.setStatus(ResponseStatus.FAILURE);
-                finalresult.setCode(204);
+                finalresult.setCode(401);
                 return finalresult;
             }
 
@@ -1449,25 +1735,8 @@ private Integer parseIntSafe(String val) {
                 return finalresult;
             }
 
-            // PIN format can be either legacy base64 OR BCrypt (after password reset).
-            // BCrypt strings start with $2a$, $2b$, or $2y$.
-            boolean pinMatches;
-            String storedPin = userentity.getPin();
-            if (storedPin != null && storedPin.startsWith("$2")) {
-                // BCrypt hash
-                pinMatches = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder()
-                        .matches(user.getPin(), storedPin);
-            } else {
-                // Legacy base64 encoding
-                try {
-                    String decodedValue = new String(Base64.getDecoder().decode(storedPin));
-                    pinMatches = decodedValue.equals(user.getPin());
-                } catch (IllegalArgumentException ex) {
-                    pinMatches = false;
-                }
-            }
-
             if (pinMatches) {
+                clearLoginFailures(user.getMobile());
                 String valueBfr = String.valueOf(userentity.getUserId());
                 String base64String = Base64.getEncoder().encodeToString(valueBfr.getBytes());
 
@@ -1485,7 +1754,7 @@ private Integer parseIntSafe(String val) {
                 returnValue.put("userId", base64String);
                 returnValue.put("email", userentity.getEmail());
                 returnValue.put("gender", userentity.getGender().name());
-                returnValue.put("dob", userentity.getDob().toString());
+                returnValue.put("dob", userentity.getDob() != null ? userentity.getDob().toString() : null); // null-safe: imported members may have no DOB (2026-10-18)
                 returnValue.put("location", userentity.getLocation());
                 returnValue.put("mobile", userentity.getMobile());
                 returnValue.put("firstName", userentity.getFirstName());
@@ -1503,19 +1772,6 @@ private Integer parseIntSafe(String val) {
                 finalresult.setMessage("Login Success");
                 finalresult.setStatus(ResponseStatus.SUCCESS);
                 finalresult.setCode(200);
-            } else {
-                // PIN mismatch on primary user — last chance: try family login
-                Map<String, Object> familyPayload = familyLoginService.tryLogin(user.getMobile(), user.getPin());
-                if (familyPayload != null) {
-                    finalresult.setData(familyPayload);
-                    finalresult.setMessage("Family Login Success");
-                    finalresult.setStatus(ResponseStatus.SUCCESS);
-                    finalresult.setCode(200);
-                    return finalresult;
-                }
-                finalresult.setMessage("Login Failed");
-                finalresult.setStatus(ResponseStatus.FAILURE);
-                finalresult.setCode(401);
             }
 
         } catch (Exception e) {
@@ -1524,6 +1780,41 @@ private Integer parseIntSafe(String val) {
             finalresult.setCode(500);
         }
         return finalresult;
+    }
+
+    // ---- PIN brute-force guard: per identifier, in memory (resets on restart, which is fine) ----
+    private static final int LOGIN_MAX_FAILURES = 5;
+    private static final long LOGIN_LOCK_MINUTES = 15;
+    private static final java.util.concurrent.ConcurrentHashMap<String, long[]> LOGIN_FAILURES = new java.util.concurrent.ConcurrentHashMap<>();
+    private static String loginKey(String identifier) { return identifier == null ? "" : identifier.trim().toLowerCase(); }
+    private static long loginLockRemainingMinutes(String identifier) {
+        long[] st = LOGIN_FAILURES.get(loginKey(identifier));
+        if (st == null) return 0;
+        long until = st[1], now = System.currentTimeMillis();
+        if (until <= now) { if (until > 0) LOGIN_FAILURES.remove(loginKey(identifier)); return 0; }
+        return Math.max(1, (until - now + 59_999) / 60_000);
+    }
+    private static void recordLoginFailure(String identifier) {
+        LOGIN_FAILURES.compute(loginKey(identifier), (k, st) -> {
+            long[] n = st == null ? new long[]{0, 0} : st;
+            n[0] += 1;
+            if (n[0] >= LOGIN_MAX_FAILURES) { n[1] = System.currentTimeMillis() + LOGIN_LOCK_MINUTES * 60_000; n[0] = 0; }
+            return n;
+        });
+    }
+    private static void clearLoginFailures(String identifier) { LOGIN_FAILURES.remove(loginKey(identifier)); }
+
+    /** True when the typed PIN matches the stored one — BCrypt (`$2…`, after a reset) or the legacy Base64 form. */
+    private static boolean pinMatchesStored(String typed, String storedPin) {
+        if (typed == null || storedPin == null || storedPin.isEmpty()) return false;
+        if (storedPin.startsWith("$2")) {
+            return new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().matches(typed, storedPin);
+        }
+        try {
+            return new String(Base64.getDecoder().decode(storedPin)).equals(typed);
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
     }
 
     /** astroInfo[0].birth_time, or null. Tolerates the array/object shapes both signup paths write. */
@@ -1541,6 +1832,19 @@ private Integer parseIntSafe(String val) {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** Blank the given astroInfo[0] keys on an entity that is about to be serialised to a viewer. */
+    private void stripAstroKeys(UserDetailEntity detail, String... keys) {
+        if (detail == null || detail.getAstronomicInfo() == null) return;
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.JsonNode node = om.readTree(detail.getAstronomicInfo());
+            com.fasterxml.jackson.databind.JsonNode target = node.isArray() ? (node.size() > 0 ? node.get(0) : null) : node;
+            if (target == null || !target.isObject()) return;
+            for (String k : keys) ((com.fasterxml.jackson.databind.node.ObjectNode) target).put(k, "");
+            detail.setAstronomicInfo(om.writeValueAsString(node));
+        } catch (Exception ignored) { }
     }
 
     /** Blank astroInfo[0].birth_time on an entity that is about to be serialised to a viewer. */
@@ -2180,16 +2484,44 @@ private Integer parseIntSafe(String val) {
                 return response;
             }
 
-            UserEntity user = new UserEntity();
+            if (mobile == null || !mobile.matches("^[6-9]\\d{9}$")) {
+                response.setCode(400);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("Please enter a valid 10-digit mobile number");
+                return response;
+            }
+            // One row per number: a real account → "log in"; an earlier lead → update it.
+            UserEntity existing = userRepository.findByMobile(mobile);
+            if (existing != null && existing.getUserStatus() != null) {
+                response.setCode(409);
+                response.setStatus(ResponseStatus.FAILURE);
+                response.setMessage("This mobile number is already registered. Please sign in to the app.");
+                return response;
+            }
+            UserEntity user = existing != null ? existing : new UserEntity();
             user.setFirstName(request.get("fullName").toString());
             user.setMobile(mobile);
-            user.setProfileCreated(request.get("profileFor").toString());
+            user.setProfileCreated(request.get("profileFor") == null ? null : request.get("profileFor").toString());
+            if (user.getLeadStatus() == null) user.setLeadStatus("NEW");
+            // The website verifies the number on WhatsApp first (2026-10-16); the token it
+            // hands over is checked here so the advisor list can show "verified".
+            Object tok = request.get("mobileVerificationToken");
+            if (tok != null && checkMobileVerification(mobile, tok.toString()) == null) {
+                user.setLeadVerified("Y");
+                consumeMobileVerification(mobile);
+            } else if (user.getLeadVerified() == null) {
+                user.setLeadVerified("N");
+            }
 
             userRepository.save(user);
             response.setCode(200);
             response.setStatus(ResponseStatus.SUCCESS);
             response.setMessage("Starter profile created successfully");
-            response.setData(user);
+            Map<String, Object> data = new HashMap<>();
+            data.put("userId", user.getUserId());
+            data.put("firstName", user.getFirstName());
+            data.put("verified", "Y".equals(user.getLeadVerified()));
+            response.setData(data);
         } catch (Exception e) {
             response.setCode(500);
             response.setStatus(ResponseStatus.FAILURE);
@@ -2398,9 +2730,29 @@ private Integer parseIntSafe(String val) {
             } catch (Exception ignored) {}
         }
 
+        // Star, Moon sign and Lagnam are a paid benefit on another member's profile (client
+        // 2026-10-08): a viewer with no active plan or the Free plan gets them blanked HERE, not
+        // just hidden by the app, so the values cannot be read from the traffic. astroLocked tells
+        // the app to draw the upgrade lock instead of "-" (which would read as "not set").
+        boolean astroLocked = !isSelf && (viewerPlanId == null || viewerPlanId == 1L);
+        if (astroLocked) {
+            try {
+                com.uravugal.matrimony.models.UserDetailEntity ud =
+                        userDetailRepository.findByUserId(profileUserId);
+                if (ud != null) {
+                    // Detach first: with open-in-view the request shares one persistence
+                    // context, and any later save in it would flush this blanked copy back to
+                    // the database. Detached, the change lives only in the response.
+                    try { entityManager.detach(ud); } catch (Exception ignored) {}
+                    stripAstroKeys(ud, "star", "moon_sign", "lagnam");
+                }
+            } catch (Exception ignored) {}
+        }
+
         resolveSubcasteName(profileUser);
 
         Map<String, Object> data = Map.of(
+                "astroLocked", astroLocked,
                 "profile", profileUser,
                 "interactionStatus", Map.of(
                         "liked", isLiked,

@@ -1,0 +1,184 @@
+2026-10-19 20:39:11.511 INFO  [background-preinit] org.hibernate.validator.internal.util.Version - HV000001: Hibernate Validator 8.0.1.Final
+2026-10-19 20:39:11.619 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - Starting MatrimonyApplication v0.0.1-SNAPSHOT using Java 17.0.12 with PID 56512 (/Users/prodian/Documents/Personal/VaibhavVivaahaBackend/target/app.jar started by prodian in /Users/prodian/Documents/Personal/VaibhavVivaahaBackend)
+2026-10-19 20:39:11.625 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - No active profile set, falling back to 1 default profile: "default"
+2026-10-19 20:39:12.986 INFO  [main] org.springframework.data.repository.config.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-10-19 20:39:13.179 INFO  [main] org.springframework.data.repository.config.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 185 ms. Found 49 JPA repository interfaces.
+2026-10-19 20:39:14.017 INFO  [main] org.springframework.boot.web.embedded.tomcat.TomcatWebServer - Tomcat initialized with port 9177 (http)
+2026-10-19 20:39:14.032 INFO  [main] org.apache.coyote.http11.Http11NioProtocol - Initializing ProtocolHandler ["http-nio-0.0.0.0-9177"]
+2026-10-19 20:39:14.037 INFO  [main] org.apache.catalina.core.StandardService - Starting service [Tomcat]
+2026-10-19 20:39:14.038 INFO  [main] org.apache.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.18]
+2026-10-19 20:39:14.084 INFO  [main] org.apache.catalina.core.ContainerBase.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2026-10-19 20:39:14.086 INFO  [main] org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 2294 ms
+2026-10-19 20:39:14.348 INFO  [main] org.hibernate.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-10-19 20:39:14.424 INFO  [main] org.hibernate.Version - HHH000412: Hibernate ORM core version 6.4.1.Final
+2026-10-19 20:39:14.470 INFO  [main] org.hibernate.cache.internal.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2026-10-19 20:39:14.735 INFO  [main] org.springframework.orm.jpa.persistenceunit.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-10-19 20:39:14.783 INFO  [main] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2026-10-19 20:39:15.129 INFO  [main] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@4e030feb
+2026-10-19 20:39:15.131 INFO  [main] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2026-10-19 20:39:15.305 WARN  [main] org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-10-19 20:39:15.307 WARN  [main] org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2026-10-19 20:39:17.374 INFO  [main] org.hibernate.engine.transaction.jta.platform.internal.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-10-19 20:39:18.131 INFO  [main] org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-10-19 20:39:18.493 INFO  [main] org.springframework.data.jpa.repository.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-10-19 20:39:21.710 WARN  [main] com.uravugal.matrimony.services.PaymentLogService - webhook source check OFF (cashfree.webhook.allowed.ips unset) — signature check only
+2026-10-19 20:39:21.712 INFO  [main] com.uravugal.matrimony.services.PaymentLogService - payment log: every Cashfree exchange -> payment_log, kept 90 days
+2026-10-19 20:39:22.239 WARN  [main] org.springframework.boot.autoconfigure.orm.jpa.JpaBaseConfiguration$JpaWebConfiguration - spring.jpa.open-in-view is enabled by default. Therefore, database queries may be performed during view rendering. Explicitly configure spring.jpa.open-in-view to disable this warning
+2026-10-19 20:39:22.262 WARN  [main] org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration - 
+
+Using generated security password: 54421768-7c63-4e4c-9323-5bf911485204
+
+This generated password is for development use only. Your security configuration must be updated before running your application in production.
+
+2026-10-19 20:39:22.734 INFO  [main] org.springframework.security.web.DefaultSecurityFilterChain - Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@5d1f0cf7, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@1475ce17, org.springframework.security.web.context.SecurityContextHolderFilter@1cfa118b, org.springframework.security.web.header.HeaderWriterFilter@67b020cd, org.springframework.web.filter.CorsFilter@36adae1, org.springframework.security.web.authentication.logout.LogoutFilter@4fc62b5d, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@31ae2cf, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@21ba22e8, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@36c93275, org.springframework.security.web.session.SessionManagementFilter@7afd098a, org.springframework.security.web.access.ExceptionTranslationFilter@1c82b8ef, org.springframework.security.web.access.intercept.AuthorizationFilter@4afbbe76]
+2026-10-19 20:39:23.043 INFO  [main] org.apache.coyote.http11.Http11NioProtocol - Starting ProtocolHandler ["http-nio-0.0.0.0-9177"]
+2026-10-19 20:39:23.058 INFO  [main] org.springframework.boot.web.embedded.tomcat.TomcatWebServer - Tomcat started on port 9177 (http) with context path ''
+2026-10-19 20:39:23.072 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - Started MatrimonyApplication in 12.106 seconds (process running for 13.156)
+2026-10-19 20:39:24.196 INFO  [http-nio-0.0.0.0-9177-exec-1] org.apache.catalina.core.ContainerBase.[Tomcat].[localhost].[/] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-10-19 20:39:24.197 INFO  [http-nio-0.0.0.0-9177-exec-1] org.springframework.web.servlet.DispatcherServlet - Initializing Servlet 'dispatcherServlet'
+2026-10-19 20:39:24.198 INFO  [http-nio-0.0.0.0-9177-exec-1] org.springframework.web.servlet.DispatcherServlet - Completed initialization in 1 ms
+2026-10-19 20:39:26.057 INFO  [SpringApplicationShutdownHook] org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean - Closing JPA EntityManagerFactory for persistence unit 'default'
+2026-10-19 20:39:26.059 INFO  [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+2026-10-19 20:39:26.066 INFO  [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
+2026-10-19 20:40:27.666 INFO  [background-preinit] org.hibernate.validator.internal.util.Version - HV000001: Hibernate Validator 8.0.1.Final
+2026-10-19 20:40:27.779 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - Starting MatrimonyApplication v0.0.1-SNAPSHOT using Java 17.0.12 with PID 57371 (/Users/prodian/Documents/Personal/VaibhavVivaahaBackend/target/app.jar started by prodian in /Users/prodian/Documents/Personal/VaibhavVivaahaBackend)
+2026-10-19 20:40:27.790 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - No active profile set, falling back to 1 default profile: "default"
+2026-10-19 20:40:29.129 INFO  [main] org.springframework.data.repository.config.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-10-19 20:40:29.324 INFO  [main] org.springframework.data.repository.config.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 170 ms. Found 49 JPA repository interfaces.
+2026-10-19 20:40:30.122 INFO  [main] org.springframework.boot.web.embedded.tomcat.TomcatWebServer - Tomcat initialized with port 9177 (http)
+2026-10-19 20:40:30.135 INFO  [main] org.apache.coyote.http11.Http11NioProtocol - Initializing ProtocolHandler ["http-nio-0.0.0.0-9177"]
+2026-10-19 20:40:30.137 INFO  [main] org.apache.catalina.core.StandardService - Starting service [Tomcat]
+2026-10-19 20:40:30.138 INFO  [main] org.apache.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.18]
+2026-10-19 20:40:30.183 INFO  [main] org.apache.catalina.core.ContainerBase.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2026-10-19 20:40:30.185 INFO  [main] org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 2231 ms
+2026-10-19 20:40:30.451 INFO  [main] org.hibernate.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-10-19 20:40:30.531 INFO  [main] org.hibernate.Version - HHH000412: Hibernate ORM core version 6.4.1.Final
+2026-10-19 20:40:30.588 INFO  [main] org.hibernate.cache.internal.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2026-10-19 20:40:30.835 INFO  [main] org.springframework.orm.jpa.persistenceunit.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-10-19 20:40:30.870 INFO  [main] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2026-10-19 20:40:31.062 INFO  [main] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@642c5bb3
+2026-10-19 20:40:31.063 INFO  [main] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2026-10-19 20:40:31.114 WARN  [main] org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-10-19 20:40:31.116 WARN  [main] org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2026-10-19 20:40:32.814 INFO  [main] org.hibernate.engine.transaction.jta.platform.internal.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-10-19 20:40:32.958 INFO  [main] org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-10-19 20:40:33.374 INFO  [main] org.springframework.data.jpa.repository.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-10-19 20:40:36.288 WARN  [main] com.uravugal.matrimony.services.PaymentLogService - webhook source check OFF (cashfree.webhook.allowed.ips unset) — signature check only
+2026-10-19 20:40:36.289 INFO  [main] com.uravugal.matrimony.services.PaymentLogService - payment log: every Cashfree exchange -> payment_log, kept 90 days
+2026-10-19 20:40:36.783 WARN  [main] org.springframework.boot.autoconfigure.orm.jpa.JpaBaseConfiguration$JpaWebConfiguration - spring.jpa.open-in-view is enabled by default. Therefore, database queries may be performed during view rendering. Explicitly configure spring.jpa.open-in-view to disable this warning
+2026-10-19 20:40:36.812 WARN  [main] org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration - 
+
+Using generated security password: dd5f8e85-7042-474b-9168-934fa0af9093
+
+This generated password is for development use only. Your security configuration must be updated before running your application in production.
+
+2026-10-19 20:40:37.290 INFO  [main] org.springframework.security.web.DefaultSecurityFilterChain - Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@be947b2, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@1018090e, org.springframework.security.web.context.SecurityContextHolderFilter@2ee3bf7f, org.springframework.security.web.header.HeaderWriterFilter@31ae2cf, org.springframework.web.filter.CorsFilter@37899405, org.springframework.security.web.authentication.logout.LogoutFilter@7cc3f3fa, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@2e072894, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@266745fc, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@326e024f, org.springframework.security.web.session.SessionManagementFilter@2e1c0d3, org.springframework.security.web.access.ExceptionTranslationFilter@1cfa118b, org.springframework.security.web.access.intercept.AuthorizationFilter@5ebf2121]
+2026-10-19 20:40:37.636 INFO  [main] org.apache.coyote.http11.Http11NioProtocol - Starting ProtocolHandler ["http-nio-0.0.0.0-9177"]
+2026-10-19 20:40:37.652 INFO  [main] org.springframework.boot.web.embedded.tomcat.TomcatWebServer - Tomcat started on port 9177 (http) with context path ''
+2026-10-19 20:40:37.669 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - Started MatrimonyApplication in 10.531 seconds (process running for 11.48)
+2026-10-19 20:40:38.394 INFO  [http-nio-0.0.0.0-9177-exec-1] org.apache.catalina.core.ContainerBase.[Tomcat].[localhost].[/] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-10-19 20:40:38.394 INFO  [http-nio-0.0.0.0-9177-exec-1] org.springframework.web.servlet.DispatcherServlet - Initializing Servlet 'dispatcherServlet'
+2026-10-19 20:40:38.395 INFO  [http-nio-0.0.0.0-9177-exec-1] org.springframework.web.servlet.DispatcherServlet - Completed initialization in 1 ms
+2026-10-19 20:40:39.807 INFO  [SpringApplicationShutdownHook] org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean - Closing JPA EntityManagerFactory for persistence unit 'default'
+2026-10-19 20:40:39.810 INFO  [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+2026-10-19 20:40:39.816 INFO  [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
+2026-10-19 20:59:29.721 INFO  [background-preinit] org.hibernate.validator.internal.util.Version - HV000001: Hibernate Validator 8.0.1.Final
+2026-10-19 20:59:30.101 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - Starting MatrimonyApplication v0.0.1-SNAPSHOT using Java 17.0.12 with PID 68011 (/Users/prodian/Documents/Personal/VaibhavVivaahaBackend/target/app.jar started by prodian in /Users/prodian/Documents/Personal/VaibhavVivaahaBackend)
+2026-10-19 20:59:30.115 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - No active profile set, falling back to 1 default profile: "default"
+2026-10-19 20:59:41.447 INFO  [main] org.springframework.data.repository.config.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-10-19 20:59:42.779 INFO  [main] org.springframework.data.repository.config.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 1297 ms. Found 49 JPA repository interfaces.
+2026-10-19 20:59:46.705 INFO  [main] org.springframework.boot.web.embedded.tomcat.TomcatWebServer - Tomcat initialized with port 9177 (http)
+2026-10-19 20:59:46.735 INFO  [main] org.apache.coyote.http11.Http11NioProtocol - Initializing ProtocolHandler ["http-nio-0.0.0.0-9177"]
+2026-10-19 20:59:46.740 INFO  [main] org.apache.catalina.core.StandardService - Starting service [Tomcat]
+2026-10-19 20:59:46.761 INFO  [main] org.apache.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.18]
+2026-10-19 20:59:46.972 INFO  [main] org.apache.catalina.core.ContainerBase.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2026-10-19 20:59:46.976 INFO  [main] org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 16010 ms
+2026-10-19 20:59:48.391 INFO  [main] org.hibernate.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-10-19 20:59:48.716 INFO  [main] org.hibernate.Version - HHH000412: Hibernate ORM core version 6.4.1.Final
+2026-10-19 20:59:48.873 INFO  [main] org.hibernate.cache.internal.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2026-10-19 20:59:50.449 INFO  [main] org.springframework.orm.jpa.persistenceunit.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-10-19 20:59:50.575 INFO  [main] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2026-10-19 20:59:51.482 INFO  [main] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@5831989d
+2026-10-19 20:59:51.486 INFO  [main] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2026-10-19 20:59:51.736 WARN  [main] org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-10-19 20:59:51.763 WARN  [main] org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2026-10-19 21:00:02.565 INFO  [main] org.hibernate.engine.transaction.jta.platform.internal.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-10-19 21:00:03.152 INFO  [main] org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-10-19 21:00:06.772 INFO  [main] org.springframework.data.jpa.repository.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-10-19 21:00:16.344 WARN  [main] com.uravugal.matrimony.services.PaymentLogService - webhook source check OFF (cashfree.webhook.allowed.ips unset) — signature check only
+2026-10-19 21:00:16.346 INFO  [main] com.uravugal.matrimony.services.PaymentLogService - payment log: every Cashfree exchange -> payment_log, kept 90 days
+2026-10-19 21:00:17.136 WARN  [main] org.springframework.boot.autoconfigure.orm.jpa.JpaBaseConfiguration$JpaWebConfiguration - spring.jpa.open-in-view is enabled by default. Therefore, database queries may be performed during view rendering. Explicitly configure spring.jpa.open-in-view to disable this warning
+2026-10-19 21:00:17.185 WARN  [main] org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration - 
+
+Using generated security password: eb9a833c-05c4-45b4-a4ad-11819ba1cd1c
+
+This generated password is for development use only. Your security configuration must be updated before running your application in production.
+
+2026-10-19 21:00:18.122 INFO  [main] org.springframework.security.web.DefaultSecurityFilterChain - Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@317c4093, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@4b7ee60b, org.springframework.security.web.context.SecurityContextHolderFilter@9c6b1b4, org.springframework.security.web.header.HeaderWriterFilter@75b81c7d, org.springframework.web.filter.CorsFilter@5ecfa2a4, org.springframework.security.web.authentication.logout.LogoutFilter@37c595f4, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@380ce6fc, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@3ee659da, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@791bbe80, org.springframework.security.web.session.SessionManagementFilter@770f78cc, org.springframework.security.web.access.ExceptionTranslationFilter@656ea219, org.springframework.security.web.access.intercept.AuthorizationFilter@58a9b1b9]
+2026-10-19 21:00:18.736 INFO  [main] org.apache.coyote.http11.Http11NioProtocol - Starting ProtocolHandler ["http-nio-0.0.0.0-9177"]
+2026-10-19 21:00:18.770 INFO  [main] org.springframework.boot.web.embedded.tomcat.TomcatWebServer - Tomcat started on port 9177 (http) with context path ''
+2026-10-19 21:00:18.802 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - Started MatrimonyApplication in 56.848 seconds (process running for 60.87)
+2026-10-19 21:00:19.375 INFO  [http-nio-0.0.0.0-9177-exec-1] org.apache.catalina.core.ContainerBase.[Tomcat].[localhost].[/] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-10-19 21:00:19.376 INFO  [http-nio-0.0.0.0-9177-exec-1] org.springframework.web.servlet.DispatcherServlet - Initializing Servlet 'dispatcherServlet'
+2026-10-19 21:00:19.380 INFO  [http-nio-0.0.0.0-9177-exec-1] org.springframework.web.servlet.DispatcherServlet - Completed initialization in 4 ms
+2026-10-19 21:27:05.484 WARN  [HikariPool-1 housekeeper] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=9m43s3ms).
+2026-10-19 21:55:05.577 WARN  [HikariPool-1 housekeeper] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=15m29s871ms).
+2026-10-19 21:59:45.743 WARN  [HikariPool-1 housekeeper] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=4m40s198ms).
+2026-10-19 22:04:57.273 WARN  [HikariPool-1 housekeeper] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=4m41s524ms).
+2026-10-19 22:10:08.605 WARN  [HikariPool-1 housekeeper] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=4m41s327ms).
+2026-10-19 22:25:17.363 WARN  [HikariPool-1 housekeeper] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=4m38s629ms).
+2026-10-19 22:39:50.315 WARN  [HikariPool-1 housekeeper] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=2m2s789ms).
+2026-10-19 22:45:02.041 WARN  [HikariPool-1 housekeeper] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=4m41s644ms).
+2026-10-19 22:50:13.664 WARN  [HikariPool-1 housekeeper] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=4m41s612ms).
+2026-10-19 23:09:02.614 INFO  [SpringApplicationShutdownHook] org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean - Closing JPA EntityManagerFactory for persistence unit 'default'
+2026-10-19 23:09:02.695 INFO  [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+2026-10-19 23:09:02.713 INFO  [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
+2026-10-19 23:26:04.550 INFO  [background-preinit] org.hibernate.validator.internal.util.Version - HV000001: Hibernate Validator 8.0.1.Final
+2026-10-19 23:26:04.645 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - Starting MatrimonyApplication v0.0.1-SNAPSHOT using Java 17.0.12 with PID 25599 (/Users/prodian/Documents/Personal/VaibhavVivaahaBackend/target/app.jar started by prodian in /Users/prodian/Documents/Personal/VaibhavVivaahaBackend)
+2026-10-19 23:26:04.650 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - No active profile set, falling back to 1 default profile: "default"
+2026-10-19 23:26:06.021 INFO  [main] org.springframework.data.repository.config.RepositoryConfigurationDelegate - Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-10-19 23:26:06.245 INFO  [main] org.springframework.data.repository.config.RepositoryConfigurationDelegate - Finished Spring Data repository scanning in 210 ms. Found 49 JPA repository interfaces.
+2026-10-19 23:26:07.199 INFO  [main] org.springframework.boot.web.embedded.tomcat.TomcatWebServer - Tomcat initialized with port 9177 (http)
+2026-10-19 23:26:07.211 INFO  [main] org.apache.coyote.http11.Http11NioProtocol - Initializing ProtocolHandler ["http-nio-0.0.0.0-9177"]
+2026-10-19 23:26:07.214 INFO  [main] org.apache.catalina.core.StandardService - Starting service [Tomcat]
+2026-10-19 23:26:07.215 INFO  [main] org.apache.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.18]
+2026-10-19 23:26:07.265 INFO  [main] org.apache.catalina.core.ContainerBase.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2026-10-19 23:26:07.267 INFO  [main] org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext - Root WebApplicationContext: initialization completed in 2493 ms
+2026-10-19 23:26:07.518 INFO  [main] org.hibernate.jpa.internal.util.LogHelper - HHH000204: Processing PersistenceUnitInfo [name: default]
+2026-10-19 23:26:07.591 INFO  [main] org.hibernate.Version - HHH000412: Hibernate ORM core version 6.4.1.Final
+2026-10-19 23:26:07.651 INFO  [main] org.hibernate.cache.internal.RegionFactoryInitiator - HHH000026: Second-level cache disabled
+2026-10-19 23:26:07.901 INFO  [main] org.springframework.orm.jpa.persistenceunit.SpringPersistenceUnitInfo - No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-10-19 23:26:07.937 INFO  [main] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2026-10-19 23:26:08.181 INFO  [main] com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection com.mysql.cj.jdbc.ConnectionImpl@6df87ffd
+2026-10-19 23:26:08.183 INFO  [main] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2026-10-19 23:26:08.295 WARN  [main] org.hibernate.orm.deprecation - HHH90000025: MySQL8Dialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default)
+2026-10-19 23:26:08.296 WARN  [main] org.hibernate.orm.deprecation - HHH90000026: MySQL8Dialect has been deprecated; use org.hibernate.dialect.MySQLDialect instead
+2026-10-19 23:26:10.091 INFO  [main] org.hibernate.engine.transaction.jta.platform.internal.JtaPlatformInitiator - HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-10-19 23:26:10.438 INFO  [main] org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean - Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-10-19 23:26:10.853 INFO  [main] org.springframework.data.jpa.repository.query.QueryEnhancerFactory - Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-10-19 23:26:13.898 WARN  [main] com.uravugal.matrimony.services.PaymentLogService - webhook source check OFF (cashfree.webhook.allowed.ips unset) — signature check only
+2026-10-19 23:26:13.898 INFO  [main] com.uravugal.matrimony.services.PaymentLogService - payment log: every Cashfree exchange -> payment_log, kept 90 days
+2026-10-19 23:26:14.426 WARN  [main] org.springframework.boot.autoconfigure.orm.jpa.JpaBaseConfiguration$JpaWebConfiguration - spring.jpa.open-in-view is enabled by default. Therefore, database queries may be performed during view rendering. Explicitly configure spring.jpa.open-in-view to disable this warning
+2026-10-19 23:26:14.456 WARN  [main] org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration - 
+
+Using generated security password: afc008cf-e37b-468e-8d6d-1d9d17e268c4
+
+This generated password is for development use only. Your security configuration must be updated before running your application in production.
+
+2026-10-19 23:26:14.893 INFO  [main] org.springframework.security.web.DefaultSecurityFilterChain - Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@be947b2, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@1018090e, org.springframework.security.web.context.SecurityContextHolderFilter@2ee3bf7f, org.springframework.security.web.header.HeaderWriterFilter@31ae2cf, org.springframework.web.filter.CorsFilter@37899405, org.springframework.security.web.authentication.logout.LogoutFilter@7cc3f3fa, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@2e072894, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@266745fc, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@326e024f, org.springframework.security.web.session.SessionManagementFilter@2e1c0d3, org.springframework.security.web.access.ExceptionTranslationFilter@1cfa118b, org.springframework.security.web.access.intercept.AuthorizationFilter@5ebf2121]
+2026-10-19 23:26:15.201 INFO  [main] org.apache.coyote.http11.Http11NioProtocol - Starting ProtocolHandler ["http-nio-0.0.0.0-9177"]
+2026-10-19 23:26:15.216 INFO  [main] org.springframework.boot.web.embedded.tomcat.TomcatWebServer - Tomcat started on port 9177 (http) with context path ''
+2026-10-19 23:26:15.231 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - Started MatrimonyApplication in 11.23 seconds (process running for 12.182)
+2026-10-19 23:26:18.247 INFO  [http-nio-0.0.0.0-9177-exec-1] org.apache.catalina.core.ContainerBase.[Tomcat].[localhost].[/] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-10-19 23:26:18.248 INFO  [http-nio-0.0.0.0-9177-exec-1] org.springframework.web.servlet.DispatcherServlet - Initializing Servlet 'dispatcherServlet'
+2026-10-19 23:26:18.250 INFO  [http-nio-0.0.0.0-9177-exec-1] org.springframework.web.servlet.DispatcherServlet - Completed initialization in 2 ms
+2026-10-19 23:42:31.525 INFO  [SpringApplicationShutdownHook] org.springframework.context.support.DefaultLifecycleProcessor - Failed to shut down 1 bean with phase value 2147482623 within timeout of 30000ms: [webServerGracefulShutdown]
+2026-10-19 23:43:01.578 INFO  [SpringApplicationShutdownHook] org.springframework.context.support.DefaultLifecycleProcessor - Failed to shut down 1 bean with phase value 2147481599 within timeout of 30000ms: [webServerStartStop]
+2026-10-19 23:43:01.623 WARN  [SpringApplicationShutdownHook] org.springframework.beans.factory.support.DisposableBeanAdapter - Custom destroy method 'shutdown' on bean with name 's3Client' propagated an exception: java.lang.NoClassDefFoundError: org/apache/http/impl/conn/PoolingHttpClientConnectionManager$2
+2026-10-19 23:43:01.631 INFO  [SpringApplicationShutdownHook] org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean - Closing JPA EntityManagerFactory for persistence unit 'default'
+2026-10-19 23:43:01.651 WARN  [SpringApplicationShutdownHook] org.springframework.beans.factory.support.DisposableBeanAdapter - Invocation of destroy method failed on bean with name 'entityManagerFactory': java.lang.NoClassDefFoundError: org/springframework/orm/hibernate5/SpringBeanContainer$SpringContainedBean
+2026-10-19 23:43:01.652 INFO  [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+2026-10-19 23:43:01.674 INFO  [SpringApplicationShutdownHook] com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
+2026-10-19 23:52:14.057 INFO  [background-preinit] org.hibernate.validator.internal.util.Version - HV000001: Hibernate Validator 8.0.1.Final
+2026-10-19 23:52:14.125 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - Starting MatrimonyApplication v0.0.1-SNAPSHOT using Java 17.0.12 with PID 41766 (/Users/prodian/Documents/Personal/VaibhavVivaahaBackend/target/app.jar started by prodian in /Users/prodian/Documents/Personal/VaibhavVivaahaBackend)
+2026-10-19 23:52:14.317 INFO  [main] com.uravugal.matrimony.MatrimonyApplication - No active profile set, falling back to 1 default profile: "default"

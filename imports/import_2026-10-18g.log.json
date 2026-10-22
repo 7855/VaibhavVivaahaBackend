@@ -1,0 +1,20 @@
+{
+ "created": [
+  {
+   "userId": 992,
+   "name": "Priyanka S"
+  },
+  {
+   "userId": 993,
+   "name": "Gokul B"
+  }
+ ],
+ "lagnam": [],
+ "photos": [
+  {
+   "userId": 992,
+   "resp": "{\"code\":200,\"status\":\"SUCCESS\",\"message\":\"Profile image updated successfully\",\"data\":\"https://pub-3aaa1581c6fd471380626751b052388e.r2.dev/profile-images/user_992/temp-16390854414723227236profile_17923"
+  }
+ ],
+ "errors": []
+}

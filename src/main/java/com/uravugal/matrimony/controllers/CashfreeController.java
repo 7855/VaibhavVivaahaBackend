@@ -18,6 +18,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Map;
 
@@ -40,6 +46,21 @@ import java.util.Map;
 @RequestMapping("/payments/cashfree")
 @CrossOrigin(origins = "*")
 public class CashfreeController {
+
+    /*
+     * One line per call, in the process log AND on stdout, so every webhook and every
+     * status check can be traced with a plain `grep WEBHOOK` / `grep CALLBACK` on the server.
+     * Logged here, at the controller, so no early return inside the service is missed.
+     * Only ids and statuses are printed — never the member's name, phone or e-mail.
+     *
+     * CALLBACK = the server side of the member coming back from checkout: the app's
+     * PaymentReturn screen (after the SDK's onVerify/onError) and the website's
+     * /payment/return page both land on GET /order/{orderId}/status. The SDK callback
+     * itself runs on the phone and never reaches the server on its own.
+     */
+    private static final Logger WEBHOOK_LOG = LoggerFactory.getLogger("WEBHOOK");
+    private static final Logger CALLBACK_LOG = LoggerFactory.getLogger("CALLBACK");
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Autowired
     private CashfreeService cashfreeService;
@@ -87,6 +108,15 @@ public class CashfreeController {
             response.setStatus(ResponseStatus.FAILURE);
             response.setMessage("Invalid request: " + e.getMessage());
         }
+        String orderStatus = null, paymentStatus = null;
+        if (response.getData() instanceof Map<?, ?> m) {
+            orderStatus = String.valueOf(m.get("orderStatus"));
+            paymentStatus = String.valueOf(m.get("paymentStatus"));
+        }
+        trace(CALLBACK_LOG, "CALLBACK order=" + orderId + " requester=" + requesterId
+                + " code=" + response.getCode() + " orderStatus=" + orderStatus
+                + " paymentStatus=" + paymentStatus
+                + (response.getCode() == 200 ? "" : " message=" + response.getMessage()));
         return response;
     }
 
@@ -103,8 +133,24 @@ public class CashfreeController {
                                           @RequestHeader(value = "x-webhook-version", required = false) String version,
                                           @RequestHeader(value = "x-webhook-attempt", required = false) String attempt,
                                           HttpServletRequest request) {
-        int code = cashfreeService.handleWebhook(rawBody, signature, timestamp, idempotencyKey, version, attempt,
-                PaymentLogService.clientIp(request));
+        String ip = PaymentLogService.clientIp(request);
+        String type = null, orderId = null, paymentStatus = null, cfPaymentId = null, amount = null;
+        try {
+            // Read for the log line only — the service verifies the signature over the RAW bytes.
+            JsonNode j = MAPPER.readTree(rawBody == null ? new byte[0] : rawBody);
+            type = j.path("type").asText(null);
+            orderId = j.path("data").path("order").path("order_id").asText(null);
+            paymentStatus = j.path("data").path("payment").path("payment_status").asText(null);
+            cfPaymentId = j.path("data").path("payment").path("cf_payment_id").asText(null);
+            amount = j.path("data").path("payment").path("payment_amount").asText(null);
+        } catch (Exception ignored) { /* unparseable body — the service rejects it */ }
+        trace(WEBHOOK_LOG, "WEBHOOK in type=" + type + " order=" + orderId + " paymentStatus=" + paymentStatus
+                + " amount=" + amount + " cfPaymentId=" + cfPaymentId + " attempt=" + attempt
+                + " bytes=" + (rawBody == null ? 0 : rawBody.length) + " ip=" + ip);
+        int code = cashfreeService.handleWebhook(rawBody, signature, timestamp, idempotencyKey, version, attempt, ip);
+        trace(WEBHOOK_LOG, "WEBHOOK out order=" + orderId + " type=" + type + " http=" + code
+                + (code == 200 ? " (accepted)" : code == 401 ? " (signature rejected)"
+                   : code == 500 ? " (failed, Cashfree will retry)" : ""));
         return ResponseEntity.status(code).body(code == 200 ? "OK" : "REJECTED");
     }
 
@@ -165,5 +211,10 @@ public class CashfreeController {
         } catch (Exception e) {
             return Long.parseLong(s);
         }
+    }
+
+    private static void trace(Logger logger, String line) {
+        logger.info(line);
+        System.out.println(LocalDateTime.now() + " " + line);
     }
 }
